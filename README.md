@@ -14,7 +14,8 @@
 |---|---|
 | ![Вход](docs/screenshots/landing.jpg) **Вход** — через Keycloak, без пароля Orbit | ![Каталог сервисов](docs/screenshots/services.png) **Сервисы** — поиск, категории, избранное, переход по SSO |
 | ![Профиль](docs/screenshots/profile.png) **Профиль** — фото с кадрированием, редактируемые поля, группы и роли | ![Безопасность](docs/screenshots/security.png) **Безопасность** — пароль, OTP и WebAuthn через Keycloak |
-| ![Редактирование сервиса](docs/screenshots/admin-edit.png) **Администрирование** — каталог и правила доступа | ![Журнал аудита](docs/screenshots/admin-audit.png) **Журнал аудита** — входы, изменения, переходы |
+| ![Редактирование сервиса](docs/screenshots/admin-edit.png) **Администрирование** — каталог и правила доступа | ![Оформление](docs/screenshots/admin-branding.png) **Оформление** — название, цвета, фавикон, логотип, тексты входа |
+| ![Журнал аудита](docs/screenshots/admin-audit.png) **Журнал аудита** — входы, изменения, переходы | |
 
 <p>
   <img src="docs/screenshots/dashboard-dark.png" alt="Тёмная тема" width="72%">
@@ -22,6 +23,21 @@
 </p>
 
 Тёмная тема включается по системной настройке; интерфейс адаптирован под мобильные экраны.
+
+### Оформление
+
+По умолчанию — фирменный стиль **velessoft**:
+
+| Цвет | | Где используется |
+|---|---|---|
+| `#171B24` | ink | боковое меню, обложки, тёмная тема |
+| `#F7F8F5` | paper | фон страниц |
+| `#B8EF65` | lime | главные кнопки, активный пункт меню |
+| `#8B7CF6` | violet | ссылки, бейджи, фокус, акценты |
+
+Шрифты — **Manrope** (заголовки, 800) и **Onest** (текст), оба с кириллицей и подключены из npm-пакетов `@fontsource-variable/*`, то есть отдаются самим приложением без внешних CDN.
+
+Администратор меняет оформление в **Администрирование → Оформление** без пересборки: название портала (меню, заголовок вкладки, страница входа), основной и акцентный цвета (цвет текста на кнопках подбирается по контрасту автоматически, при контрасте ниже 4.5:1 показывается предупреждение), фавикон, логотип, заголовок и подзаголовок страницы входа, ссылка или email поддержки. Изменения видны сразу в живом предпросмотре и применяются для всех пользователей после сохранения. Фавикон и логотип принимаются в PNG/JPEG/WebP и **перекодируются в PNG** (SVG и ICO не принимаются, чтобы с домена Orbit не отдавался активный контент).
 
 ## Архитектура
 
@@ -79,6 +95,67 @@ make web     # Vite на :5173, проксирует /api, /auth и /go на :80
 
 Всё в контейнерах, одним образом (SPA отдаёт Go): `docker compose --profile app up -d --build`, затем http://localhost:8080.
 
+## Kubernetes и Helm
+
+Helm-чарт лежит в [deploy/helm/orbit](deploy/helm/orbit). Keycloak и PostgreSQL чарт не разворачивает — Orbit подключается к уже существующим.
+
+Образ публикуется workflow [release.yml](.github/workflows/release.yml) в `ghcr.io/villetacore/orbit` (multi-arch, `linux/amd64` и `linux/arm64`): ветка `main` → тег `main` и `sha-…`, тег `vX.Y.Z` → `X.Y.Z` и `X.Y`, а сам чарт — OCI-артефактом в `oci://ghcr.io/villetacore/charts/orbit`.
+
+1. Секреты — лучше отдельным Secret (External Secrets, Sealed Secrets, Vault) с ключами `databaseUrl`, `sessionSecret` (≥ 32 символов), `oidcClientSecret`, `keycloakAdminClientSecret`, а для S3 ещё `s3AccessKey`, `s3SecretKey`:
+
+```bash
+kubectl -n orbit create secret generic orbit-secrets --from-literal=databaseUrl='postgres://orbit:…@postgres:5432/orbit' --from-literal=sessionSecret="$(openssl rand -base64 48)" --from-literal=oidcClientSecret='…' --from-literal=keycloakAdminClientSecret='…' --from-literal=s3AccessKey='…' --from-literal=s3SecretKey='…'
+```
+
+2. Свои значения, например `values.prod.yaml`:
+
+```yaml
+config:
+  publicUrl: https://orbit.example.com
+  keycloak:
+    url: https://sso.example.com
+    realm: orbit
+storage:
+  driver: s3
+  s3:
+    endpoint: s3.example.com
+    bucket: orbit-avatars
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: orbit.example.com
+      paths: [{ path: /, pathType: Prefix }]
+  tls:
+    - secretName: orbit-tls
+      hosts: [orbit.example.com]
+secrets:
+  existingSecret: orbit-secrets
+```
+
+3. Установка и проверка:
+
+```bash
+helm upgrade --install orbit deploy/helm/orbit -n orbit --create-namespace -f values.prod.yaml
+```
+
+```bash
+helm test orbit -n orbit
+```
+
+Что заложено в чарт:
+
+- 2 реплики, `RollingUpdate` без простоя, PodDisruptionBudget, разнесение подов по нодам, опциональный HPA.
+- Пробы: `startupProbe` и `livenessProbe` на `/healthz`, `readinessProbe` на `/readyz` (проверяет PostgreSQL — под без базы выводится из балансировки).
+- Безопасность пода: non-root (UID 65532, distroless), read-only root filesystem, `drop: [ALL]`, `seccompProfile: RuntimeDefault`, без токена service account.
+- Под перезапускается при изменении ConfigMap или Secret (checksum-аннотации).
+- Миграции БД применяются при старте под advisory lock — безопасно при нескольких репликах.
+- Чарт отказывается рендериться при заведомо нерабочих настройках: нет секретов, короткий `sessionSecret`, `publicUrl` с путём, `storage.driver=fs` с несколькими репликами без `ReadWriteMany`.
+
+Ограничения: rate limiting считается в памяти каждого пода (лимиты фактически умножаются на число реплик); `config.trustProxy: true` держите только за ingress, который перезаписывает `X-Forwarded-For`. Если Keycloak в том же кластере, укажите `config.keycloak.internalUrl` (например, `http://keycloak.keycloak.svc:8080`) — бэкенд будет ходить в него напрямую, а issuer останется публичным.
+
 ## Конфигурация
 
 Все параметры — переменные окружения (полный список в [backend/.env.example](backend/.env.example) и [config.go](backend/internal/config/config.go)).
@@ -121,6 +198,8 @@ make web     # Vite на :5173, проксирует /api, /auth и /go на :80
 | `POST /auth/logout` | Завершить сессию; ответ содержит URL выхода из Keycloak |
 | `GET /go/{slug}` | Переход в сервис с проверкой доступа и аудитом |
 | `GET /api/config` | Публичные настройки (ссылки на Account Console) |
+| `GET /api/branding`, `GET /api/branding/{favicon\|logo}` | Оформление портала и его файлы (публично) |
+| `GET`, `PUT /api/admin/branding`; `PUT`, `DELETE /api/admin/branding/{favicon\|logo}` | Изменение оформления (`orbit-admin`) |
 | `GET /api/me` | Текущий пользователь и CSRF-токен |
 | `GET`, `PATCH /api/profile` | Профиль из Keycloak / изменение разрешённых полей |
 | `PUT`, `DELETE /api/profile/avatar` | Загрузка (`multipart/form-data`, поле `file`) / удаление аватара |
@@ -129,6 +208,7 @@ make web     # Vite на :5173, проксирует /api, /auth и /go на :80
 | `PUT /api/services/{id}/favorite` | `{"favorite": true}` |
 | `GET`, `POST /api/admin/services`, `PUT`, `DELETE /api/admin/services/{id}` | Управление каталогом (`orbit-admin`) |
 | `GET /api/admin/audit?limit=&before=` | Журнал аудита (`orbit-admin`) |
+| `GET /healthz`, `GET /readyz` | Liveness и readiness (с проверкой PostgreSQL) |
 
 Запросы, меняющие состояние, требуют заголовок `X-CSRF-Token` (из `/api/me`) и, если браузер передал `Origin`, совпадение с `ORBIT_PUBLIC_URL`. CORS не включается: SPA и API работают на одном origin.
 
@@ -164,9 +244,11 @@ backend/
 frontend/src/
   pages/                Главная, Сервисы, Профиль, Безопасность, Администрирование
   components/           Layout, Avatar, AvatarEditor (кадрирование), ServiceCard
+  branding.tsx          загрузка оформления: заголовок, фавикон, CSS-переменные цветов
 deploy/keycloak/        realm для локальной разработки
+deploy/helm/orbit/      Helm-чарт для Kubernetes
 ```
 
 ## Дальше по плану
 
-Регистрация по приглашениям и доменам (этап 5), пользовательские OAuth-интеграции (этап 4), метрики и мониторинг, статус доступности сервисов, уведомления о важных изменениях аккаунта.
+Регистрация по приглашениям и доменам (этап 5), пользовательские OAuth-интеграции (этап 4), метрики Prometheus, общий rate limiting через Redis для нескольких реплик, статус доступности сервисов, уведомления о важных изменениях аккаунта.
