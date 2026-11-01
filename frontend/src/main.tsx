@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router';
 import { ApiError } from './api';
 import { App } from './App';
 import { meQueryKey } from './auth';
+import '@fontsource-variable/inter';
 import './styles.css';
 
 // An expired session on any other request sends the user back through

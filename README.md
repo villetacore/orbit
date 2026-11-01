@@ -6,6 +6,23 @@
 
 Стек: **Go** (API, BFF) + **React / TypeScript** (Vite) + **PostgreSQL** + **Keycloak 26**; аватары — локальная ФС или S3-совместимое хранилище.
 
+![Главная страница Orbit](docs/screenshots/dashboard.png)
+
+## Скриншоты
+
+| | |
+|---|---|
+| ![Вход](docs/screenshots/landing.jpg) **Вход** — через Keycloak, без пароля Orbit | ![Каталог сервисов](docs/screenshots/services.png) **Сервисы** — поиск, категории, избранное, переход по SSO |
+| ![Профиль](docs/screenshots/profile.png) **Профиль** — фото с кадрированием, редактируемые поля, группы и роли | ![Безопасность](docs/screenshots/security.png) **Безопасность** — пароль, OTP и WebAuthn через Keycloak |
+| ![Редактирование сервиса](docs/screenshots/admin-edit.png) **Администрирование** — каталог и правила доступа | ![Журнал аудита](docs/screenshots/admin-audit.png) **Журнал аудита** — входы, изменения, переходы |
+
+<p>
+  <img src="docs/screenshots/dashboard-dark.png" alt="Тёмная тема" width="72%">
+  <img src="docs/screenshots/mobile.png" alt="Мобильная версия" width="24%">
+</p>
+
+Тёмная тема включается по системной настройке; интерфейс адаптирован под мобильные экраны.
+
 ## Архитектура
 
 ```

@@ -1,93 +1,138 @@
 import { useQuery } from '@tanstack/react-query';
+import {
+  AlertTriangle,
+  AppWindow,
+  CheckCircle2,
+  ChevronRight,
+  Fingerprint,
+  KeyRound,
+  Link2,
+  ListChecks,
+  MonitorSmartphone,
+  Smartphone,
+  type LucideIcon,
+} from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { api, errorMessage } from '../api';
+import { PageHeader, Skeleton } from '../components/ui';
 
-const actionInfo: Record<string, { title: string; text: string; button: string }> = {
+const actionInfo: Record<string, { title: string; text: string; button: string; icon: LucideIcon }> = {
   UPDATE_PASSWORD: {
     title: 'Пароль',
-    text: 'Смена пароля выполняется в Keycloak; перед изменением потребуется подтвердить вход.',
+    text: 'Перед сменой пароля Keycloak попросит подтвердить вход.',
     button: 'Сменить пароль',
+    icon: KeyRound,
   },
   CONFIGURE_TOTP: {
     title: 'Приложение-аутентификатор',
-    text: 'Одноразовые коды из Google Authenticator, FreeOTP или аналогичного приложения.',
+    text: 'Одноразовые коды из Google Authenticator, FreeOTP или аналогов.',
     button: 'Настроить OTP',
+    icon: Smartphone,
   },
   'webauthn-register': {
     title: 'Ключ безопасности',
     text: 'Аппаратный ключ или passkey (WebAuthn) как второй фактор.',
     button: 'Добавить ключ',
+    icon: Fingerprint,
   },
 };
 
-const statusText: Record<string, { text: string; kind: string }> = {
-  success: { text: 'Изменения сохранены.', kind: 'banner-ok' },
-  cancelled: { text: 'Действие отменено.', kind: 'banner-warn' },
-  error: { text: 'Не удалось выполнить действие.', kind: 'banner-warn' },
+const actionOrder = ['UPDATE_PASSWORD', 'CONFIGURE_TOTP', 'webauthn-register'];
+
+const statusInfo: Record<string, { text: string; ok: boolean }> = {
+  success: { text: 'Изменения сохранены в Keycloak.', ok: true },
+  cancelled: { text: 'Действие отменено — ничего не изменилось.', ok: false },
+  error: { text: 'Не удалось выполнить действие. Попробуйте ещё раз.', ok: false },
 };
 
 export function Security() {
   const [params] = useSearchParams();
   const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: Infinity });
-  const status = statusText[params.get('kc_action_status') ?? ''];
+  const status = statusInfo[params.get('kc_action_status') ?? ''];
 
-  if (config.isPending) return <div className="page muted">Загрузка…</div>;
-  if (config.isError) return <div className="page form-error">{errorMessage(config.error)}</div>;
+  const header = (
+    <PageHeader title="Безопасность" description="Способы входа и активность учётной записи. Все изменения выполняются в Keycloak." />
+  );
+
+  if (config.isPending) {
+    return (
+      <div className="page">
+        {header}
+        <div className="methods">
+          <Skeleton height={190} count={3} />
+        </div>
+      </div>
+    );
+  }
+  if (config.isError) {
+    return (
+      <div className="page">
+        {header}
+        <p className="form-error">{errorMessage(config.error)}</p>
+      </div>
+    );
+  }
   const links = config.data.securityLinks;
+  const actions = actionOrder.filter((a) => config.data.actions.includes(a));
 
   return (
     <div className="page">
-      <h1>Безопасность</h1>
+      {header}
       {status && (
-        <p className={`banner ${status.kind}`} role="status">
-          {status.text}
-        </p>
+        <div className={`alert ${status.ok ? 'alert-ok' : 'alert-warn'}`} role="status">
+          {status.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          <span>{status.text}</span>
+        </div>
       )}
 
-      <section className="card">
+      <section className="section">
         <h2>Способы входа</h2>
-        <ul className="action-list">
-          {config.data.actions
-            .filter((a) => actionInfo[a])
-            .map((a) => {
-              const info = actionInfo[a]!;
-              return (
-                <li key={a}>
-                  <div>
-                    <h3>{info.title}</h3>
-                    <p className="muted">{info.text}</p>
-                  </div>
-                  {/* Full navigation: Keycloak runs the action and returns to Orbit. */}
-                  <a className="btn" href={`/auth/action/${encodeURIComponent(a)}`}>
-                    {info.button}
-                  </a>
-                </li>
-              );
-            })}
-        </ul>
+        <div className="methods">
+          {actions.map((a) => {
+            const info = actionInfo[a]!;
+            const Icon = info.icon;
+            return (
+              <div key={a} className="card method">
+                <span className="method-icon">
+                  <Icon size={20} />
+                </span>
+                <h3>{info.title}</h3>
+                <p>{info.text}</p>
+                {/* Full navigation: Keycloak runs the action and returns to Orbit. */}
+                <a className="btn" href={`/auth/action/${encodeURIComponent(a)}`}>
+                  {info.button}
+                </a>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
-      <section className="card">
+      <section className="section">
         <h2>Аккаунт в Keycloak</h2>
-        <ul className="action-list">
+        <ul className="card link-list">
           <ExternalItem
+            icon={ListChecks}
             title="Все способы входа"
-            text="Просмотр и удаление настроенных паролей, OTP и ключей."
+            text="Настроенные пароли, OTP и ключи; удаление лишних"
             href={links.signingIn}
           />
           <ExternalItem
+            icon={MonitorSmartphone}
             title="Устройства и сессии"
-            text="Где выполнен вход; завершение отдельных сессий."
+            text="Где выполнен вход; завершение отдельных сессий"
             href={links.deviceActivity}
           />
           <ExternalItem
+            icon={Link2}
             title="Связанные аккаунты"
-            text="Внешние провайдеры идентификации, подключённые к аккаунту."
+            text="Внешние провайдеры идентификации"
             href={links.linkedAccounts}
           />
           <ExternalItem
+            icon={AppWindow}
             title="Приложения"
-            text="Приложения с доступом к аккаунту и выданные им разрешения."
+            text="Приложения с доступом к аккаунту и их разрешения"
             href={links.applications}
           />
         </ul>
@@ -96,15 +141,18 @@ export function Security() {
   );
 }
 
-function ExternalItem({ title, text, href }: { title: string; text: string; href: string }) {
+function ExternalItem({ icon: Icon, title, text, href }: { icon: LucideIcon; title: string; text: string; href: string }) {
   return (
     <li>
-      <div>
-        <h3>{title}</h3>
-        <p className="muted">{text}</p>
-      </div>
-      <a className="btn btn-ghost" href={href} target="_blank" rel="noopener noreferrer">
-        Открыть ↗
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        <span className="quick-icon">
+          <Icon size={18} />
+        </span>
+        <span>
+          <strong>{title}</strong>
+          <small>{text}</small>
+        </span>
+        <ChevronRight size={18} className="chev" />
       </a>
     </li>
   );
