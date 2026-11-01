@@ -1,0 +1,17 @@
+apiVersion: v2
+name: orbit
+description: Orbit — employee portal for the corporate account on top of Keycloak
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/villetacore/orbit
+sources:
+  - https://github.com/villetacore/orbit
+maintainers:
+  - name: velessoft
+    url: https://github.com/villetacore
+keywords:
+  - keycloak
+  - oidc
+  - portal
+  - sso

@@ -1,0 +1,11 @@
+replicaCount: 1
+storage:
+  driver: fs
+config:
+  publicUrl: http://localhost:8080
+  seedDemo: true
+secrets:
+  databaseUrl: postgres://orbit:orbit@postgres:5432/orbit
+  sessionSecret: ci-only-session-secret-0123456789abcdef
+  oidcClientSecret: ci
+  keycloakAdminClientSecret: ci

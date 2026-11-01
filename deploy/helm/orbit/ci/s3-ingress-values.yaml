@@ -1,0 +1,14 @@
+config:
+  publicUrl: https://orbit.example.com
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  tls:
+    - secretName: orbit-tls
+      hosts: [orbit.example.com]
+autoscaling:
+  enabled: true
+secrets:
+  existingSecret: orbit-secrets

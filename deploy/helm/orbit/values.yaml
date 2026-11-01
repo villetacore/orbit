@@ -1,0 +1,134 @@
+# Orbit Helm chart values.
+# Orbit needs an existing Keycloak realm (see deploy/keycloak/orbit-realm.json)
+# and PostgreSQL; neither is deployed by this chart.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/villetacore/orbit
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt
+    # nginx.ingress.kubernetes.io/proxy-body-size: 8m
+  hosts:
+    - host: orbit.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: orbit-tls
+  #    hosts:
+  #      - orbit.example.com
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Defaults spread replicas across nodes; set to [] to disable.
+topologySpreadConstraints: null
+
+# Non-secret application settings (rendered into a ConfigMap).
+config:
+  # Origin users open in the browser; also the OIDC redirect base.
+  publicUrl: https://orbit.example.com
+  keycloak:
+    # Public Keycloak URL (token issuer as browsers see it).
+    url: https://sso.example.com
+    # Optional in-cluster URL for backend calls, e.g. http://keycloak.keycloak.svc:8080
+    internalUrl: ""
+    realm: orbit
+    clientId: orbit-web
+    adminClientId: orbit-admin-api
+  adminRole: orbit-admin
+  editableAttributes: phoneNumber,jobTitle
+  visibleAttributes: department
+  sessionTTL: 12h
+  # Take the client IP from X-Forwarded-For; keep true only behind an ingress
+  # that overwrites that header.
+  trustProxy: true
+  seedDemo: false
+  avatarMaxBytes: 5242880
+  extraEnv: []
+  #  - name: ORBIT_SOMETHING
+  #    value: "1"
+
+# Avatar, favicon and logo storage.
+storage:
+  # s3 is recommended for more than one replica.
+  driver: s3
+  s3:
+    endpoint: s3.example.com
+    bucket: orbit-avatars
+    useSSL: true
+  fs:
+    persistence:
+      # With replicaCount > 1 the claim must be ReadWriteMany.
+      accessModes: ["ReadWriteOnce"]
+      size: 1Gi
+      storageClass: ""
+      existingClaim: ""
+
+# Secret values. Prefer existingSecret (managed by External Secrets, Sealed
+# Secrets, Vault, ...) with the keys:
+#   databaseUrl, sessionSecret, oidcClientSecret, keycloakAdminClientSecret,
+#   s3AccessKey, s3SecretKey (s3 driver only)
+secrets:
+  existingSecret: ""
+  databaseUrl: ""
+  sessionSecret: ""
+  oidcClientSecret: ""
+  keycloakAdminClientSecret: ""
+  s3AccessKey: ""
+  s3SecretKey: ""

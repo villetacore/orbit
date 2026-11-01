@@ -1,0 +1,15 @@
+Orbit {{ .Chart.AppVersion }} is deployed as "{{ include "orbit.fullname" . }}".
+
+Open: {{ .Values.config.publicUrl }}
+{{- if not .Values.ingress.enabled }}
+
+Ingress is disabled. To try it locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "orbit.fullname" . }} 8080:{{ .Values.service.port }}
+(config.publicUrl must then be http://localhost:8080, also in the Keycloak client.)
+{{- end }}
+
+Keycloak client "{{ .Values.config.keycloak.clientId }}" must allow:
+  redirect URI:             {{ .Values.config.publicUrl }}/auth/callback
+  post-logout redirect URI: {{ .Values.config.publicUrl }}/
+
+Check: helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

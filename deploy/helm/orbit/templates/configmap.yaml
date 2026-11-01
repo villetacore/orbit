@@ -1,0 +1,31 @@
+{{- include "orbit.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orbit.fullname" . }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+data:
+  ORBIT_LISTEN_ADDR: ":8080"
+  ORBIT_STATIC_DIR: /web
+  ORBIT_PUBLIC_URL: {{ .Values.config.publicUrl | quote }}
+  ORBIT_KEYCLOAK_URL: {{ .Values.config.keycloak.url | quote }}
+  ORBIT_KEYCLOAK_INTERNAL_URL: {{ .Values.config.keycloak.internalUrl | quote }}
+  ORBIT_KEYCLOAK_REALM: {{ .Values.config.keycloak.realm | quote }}
+  ORBIT_OIDC_CLIENT_ID: {{ .Values.config.keycloak.clientId | quote }}
+  ORBIT_KEYCLOAK_ADMIN_CLIENT_ID: {{ .Values.config.keycloak.adminClientId | quote }}
+  ORBIT_ADMIN_ROLE: {{ .Values.config.adminRole | quote }}
+  ORBIT_EDITABLE_ATTRIBUTES: {{ .Values.config.editableAttributes | quote }}
+  ORBIT_VISIBLE_ATTRIBUTES: {{ .Values.config.visibleAttributes | quote }}
+  ORBIT_SESSION_TTL: {{ .Values.config.sessionTTL | quote }}
+  ORBIT_TRUST_PROXY: {{ .Values.config.trustProxy | quote }}
+  ORBIT_SEED_DEMO: {{ .Values.config.seedDemo | quote }}
+  ORBIT_AVATAR_MAX_BYTES: {{ .Values.config.avatarMaxBytes | quote }}
+  ORBIT_STORAGE_DRIVER: {{ .Values.storage.driver | quote }}
+  {{- if eq .Values.storage.driver "s3" }}
+  ORBIT_S3_ENDPOINT: {{ .Values.storage.s3.endpoint | quote }}
+  ORBIT_S3_BUCKET: {{ .Values.storage.s3.bucket | quote }}
+  ORBIT_S3_USE_SSL: {{ .Values.storage.s3.useSSL | quote }}
+  {{- else }}
+  ORBIT_STORAGE_DIR: /data/avatars
+  {{- end }}

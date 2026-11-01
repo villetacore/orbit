@@ -1,0 +1,19 @@
+{{- if and (eq .Values.storage.driver "fs") (not .Values.storage.fs.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "orbit.fullname" . }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.fs.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.fs.persistence.size }}
+  {{- with .Values.storage.fs.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
