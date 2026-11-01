@@ -272,6 +272,29 @@ func (p *Postgres) SeedDemoServices(ctx context.Context, keycloakURL, realm, adm
 	return nil
 }
 
+// --- settings ---
+
+const brandingKey = "branding"
+
+func (p *Postgres) GetBranding(ctx context.Context) (Branding, error) {
+	b := DefaultBranding()
+	err := p.pool.QueryRow(ctx, `SELECT value FROM settings WHERE key = $1`, brandingKey).Scan(&b)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DefaultBranding(), nil
+	}
+	return b, err
+}
+
+func (p *Postgres) SaveBranding(ctx context.Context, b Branding, actor string) error {
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO settings (key, value, updated_by) VALUES ($1, $2, $3)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+		brandingKey, b, actor)
+	return err
+}
+
+func (p *Postgres) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
+
 // --- audit ---
 
 func (p *Postgres) RecordAudit(ctx context.Context, e AuditEvent) error {

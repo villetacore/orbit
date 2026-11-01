@@ -1,5 +1,6 @@
 import { X, type LucideIcon } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
+import { useBranding } from '../branding';
 
 export function BrandMark({ size = 18 }: { size?: number }) {
   return (
@@ -18,6 +19,20 @@ export function BrandMark({ size = 18 }: { size?: number }) {
         />
       </svg>
     </span>
+  );
+}
+
+// Brand renders the uploaded logo, or the mark with the portal name.
+export function Brand({ markSize }: { markSize?: number }) {
+  const { appName, logoUrl } = useBranding();
+  if (logoUrl) {
+    return <img className="brand-logo" src={logoUrl} alt={appName} />;
+  }
+  return (
+    <>
+      <BrandMark size={markSize} />
+      {appName}
+    </>
   );
 }
 

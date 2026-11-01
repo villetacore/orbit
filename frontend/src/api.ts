@@ -14,6 +14,21 @@ export interface Me {
   csrfToken: string;
 }
 
+export interface Branding {
+  appName: string;
+  landingTitle: string;
+  landingSubtitle: string;
+  primaryColor: string;
+  accentColor: string;
+  supportEmail: string;
+  supportUrl: string;
+  faviconUrl: string;
+  logoUrl: string;
+}
+
+export type BrandingInput = Omit<Branding, 'faviconUrl' | 'logoUrl'>;
+export type BrandingAsset = 'favicon' | 'logo';
+
 export interface PublicConfig {
   accountConsoleUrl: string;
   securityLinks: Record<'signingIn' | 'deviceActivity' | 'linkedAccounts' | 'applications', string>;
@@ -140,6 +155,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
 export const api = {
   me: () => request<Me>('GET', '/api/me'),
   config: () => request<PublicConfig>('GET', '/api/config'),
+  branding: () => request<Branding>('GET', '/api/branding'),
   logout: () => request<{ redirectUrl: string }>('POST', '/auth/logout'),
 
   profile: () => request<Profile>('GET', '/api/profile'),
@@ -161,6 +177,14 @@ export const api = {
     updateService: (id: string, input: ServiceInput) =>
       request<AdminService>('PUT', `/api/admin/services/${encodeURIComponent(id)}`, input),
     deleteService: (id: string) => request<void>('DELETE', `/api/admin/services/${encodeURIComponent(id)}`),
+    branding: () => request<Branding>('GET', '/api/admin/branding'),
+    updateBranding: (input: BrandingInput) => request<Branding>('PUT', '/api/admin/branding', input),
+    uploadBrandingAsset: (asset: BrandingAsset, file: Blob) => {
+      const form = new FormData();
+      form.append('file', file, asset);
+      return request<Branding>('PUT', `/api/admin/branding/${asset}`, form);
+    },
+    deleteBrandingAsset: (asset: BrandingAsset) => request<Branding>('DELETE', `/api/admin/branding/${asset}`),
     audit: (before?: number) =>
       request<{ events: AuditEvent[] }>('GET', `/api/admin/audit?limit=50${before ? `&before=${before}` : ''}`),
   },

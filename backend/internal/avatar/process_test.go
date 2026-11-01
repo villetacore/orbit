@@ -109,3 +109,18 @@ func TestFSRejectsTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProcessImageKeepsAspectForLogos(t *testing.T) {
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 1200, 300)), nil); err != nil {
+		t.Fatal(err)
+	}
+	out, mime, err := ProcessImage(bytes.NewReader(b.Bytes()), 5<<20, Options{MaxWidth: 480, MaxHeight: 160, MinDimension: 16, PNGOnly: true})
+	if err != nil || mime != "image/png" {
+		t.Fatalf("%v %q", err, mime)
+	}
+	cfg, _ := png.DecodeConfig(bytes.NewReader(out))
+	if cfg.Width != 480 || cfg.Height != 120 {
+		t.Fatalf("size %dx%d", cfg.Width, cfg.Height)
+	}
+}

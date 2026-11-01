@@ -1,14 +1,17 @@
 import { useMutation } from '@tanstack/react-query';
-import { LayoutDashboard, LayoutGrid, LogOut, Menu, Settings2, ShieldCheck, UserRound } from 'lucide-react';
+import { LayoutDashboard, LayoutGrid, LifeBuoy, LogOut, Menu, Settings2, ShieldCheck, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { api } from '../api';
 import { useMe } from '../auth';
+import { useBranding } from '../branding';
 import { Avatar } from './Avatar';
-import { BrandMark } from './ui';
+import { Brand } from './ui';
 
 export function Layout() {
   const me = useMe();
+  const branding = useBranding();
+  const support = branding.supportUrl || (branding.supportEmail && `mailto:${branding.supportEmail}`);
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
   const logout = useMutation({
@@ -29,9 +32,8 @@ export function Layout() {
   return (
     <div className="app">
       <aside className={`sidebar${open ? ' open' : ''}`}>
-        <NavLink to="/" className="brand" aria-label="Orbit — на главную">
-          <BrandMark />
-          Orbit
+        <NavLink to="/" className="brand" aria-label={`${branding.appName} — на главную`}>
+          <Brand />
         </NavLink>
         <nav className="nav" aria-label="Основная навигация">
           {links.map(({ to, label, icon: Icon, end }) => (
@@ -51,6 +53,12 @@ export function Layout() {
           )}
         </nav>
         <div className="sidebar-foot">
+          {support && (
+            <a className="support-link" href={support} target="_blank" rel="noopener noreferrer">
+              <LifeBuoy size={16} />
+              Поддержка
+            </a>
+          )}
           <div className="user-card">
             <NavLink to="/profile" className="user-card-link">
               <Avatar url={me.avatarUrl} name={displayName} size={36} />
@@ -79,8 +87,7 @@ export function Layout() {
             <Menu size={20} />
           </button>
           <NavLink to="/" className="brand">
-            <BrandMark size={16} />
-            Orbit
+            <Brand markSize={16} />
           </NavLink>
           <NavLink to="/profile" aria-label="Профиль">
             <Avatar url={me.avatarUrl} name={displayName} size={30} />

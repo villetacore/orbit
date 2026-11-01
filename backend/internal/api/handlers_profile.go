@@ -224,39 +224,8 @@ func (s *Server) avatarURLFor(r *http.Request, sub string) string {
 
 func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	sub := sessionFrom(r.Context()).Claims.Subject
-	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.AvatarMaxBytes+64<<10)
-	if err := r.ParseMultipartForm(s.cfg.AvatarMaxBytes); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Файл слишком большой")
-			return
-		}
-		writeError(w, http.StatusBadRequest, "bad_request", "Ожидается multipart/form-data с полем file")
-		return
-	}
-	defer r.MultipartForm.RemoveAll() //nolint:errcheck
-	file, _, err := r.FormFile("file")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", "Поле file не найдено")
-		return
-	}
-	defer file.Close()
-
-	data, contentType, err := avatar.Process(file, s.cfg.AvatarMaxBytes)
-	switch {
-	case errors.Is(err, avatar.ErrTooLarge):
-		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Файл слишком большой")
-		return
-	case errors.Is(err, avatar.ErrUnsupportedType):
-		writeError(w, http.StatusUnsupportedMediaType, "unsupported_type", "Поддерживаются PNG, JPEG и WebP")
-		return
-	case errors.Is(err, avatar.ErrInvalidImage), errors.Is(err, avatar.ErrDimensions):
-		writeError(w, http.StatusUnprocessableEntity, "invalid_image",
-			fmt.Sprintf("Изображение повреждено или его размер вне диапазона %d–%d px", avatar.MinDimension, avatar.MaxDimension))
-		return
-	case err != nil:
-		s.log.Error("process avatar", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal", "Не удалось обработать изображение")
+	data, contentType, ok := s.readImageUpload(w, r, s.cfg.AvatarMaxBytes, avatar.AvatarOptions)
+	if !ok {
 		return
 	}
 
@@ -312,6 +281,45 @@ func (s *Server) handleDeleteAvatar(w http.ResponseWriter, r *http.Request) {
 	s.syncPicture(r.Context(), sub, "")
 	s.audit(r, sub, "avatar.delete", sub, nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// readImageUpload reads the multipart "file" field and normalizes it with
+// avatar.ProcessImage, writing an error response when it fails.
+func (s *Server) readImageUpload(w http.ResponseWriter, r *http.Request, maxBytes int64, opts avatar.Options) ([]byte, string, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+64<<10)
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Файл слишком большой")
+			return nil, "", false
+		}
+		writeError(w, http.StatusBadRequest, "bad_request", "Ожидается multipart/form-data с полем file")
+		return nil, "", false
+	}
+	defer r.MultipartForm.RemoveAll() //nolint:errcheck
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "Поле file не найдено")
+		return nil, "", false
+	}
+	defer file.Close()
+
+	data, contentType, err := avatar.ProcessImage(file, maxBytes, opts)
+	switch {
+	case errors.Is(err, avatar.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Файл слишком большой")
+	case errors.Is(err, avatar.ErrUnsupportedType):
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported_type", "Поддерживаются PNG, JPEG и WebP")
+	case errors.Is(err, avatar.ErrInvalidImage), errors.Is(err, avatar.ErrDimensions):
+		writeError(w, http.StatusUnprocessableEntity, "invalid_image",
+			fmt.Sprintf("Изображение повреждено или его размер вне диапазона %d–%d px", opts.MinDimension, avatar.MaxDimension))
+	case err != nil:
+		s.log.Error("process image", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "Не удалось обработать изображение")
+	default:
+		return data, contentType, true
+	}
+	return nil, "", false
 }
 
 // syncPicture publishes the avatar URL as the Keycloak "picture" attribute so

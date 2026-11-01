@@ -69,7 +69,7 @@ export function Dashboard() {
           </div>
         </Link>
         <Link to="/services?favorites=1" className="card stat">
-          <span className="stat-icon warn">
+          <span className="stat-icon lime">
             <Star size={18} />
           </span>
           <div>

@@ -539,3 +539,92 @@ func TestSafeReturnTo(t *testing.T) {
 		}
 	}
 }
+
+func (h *harness) uploadTo(path string, data []byte) *http.Response {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("file", "f.png")
+	fw.Write(data)
+	mw.Close()
+	return h.do("PUT", path, &body, map[string]string{
+		"Content-Type": mw.FormDataContentType(), csrfHeader: h.csrf, "Origin": publicURL,
+	})
+}
+
+func TestBrandingPublicDefaults(t *testing.T) {
+	h := newHarness(t)
+	var v brandingView
+	h.decode(h.do("GET", "/api/branding", nil, nil), http.StatusOK, &v)
+	if v.AppName != "Orbit" || v.PrimaryColor != "#8B7CF6" || v.AccentColor != "#B8EF65" || v.FaviconURL != "" {
+		t.Fatalf("defaults: %+v", v)
+	}
+}
+
+func TestBrandingRequiresAdmin(t *testing.T) {
+	h := newHarness(t, "employee")
+	h.login()
+	in := map[string]string{"appName": "X", "primaryColor": "#000000", "accentColor": "#FFFFFF"}
+	if r := h.write("PUT", "/api/admin/branding", in); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin update: %d", r.StatusCode)
+	}
+	if r := h.uploadTo("/api/admin/branding/favicon", pngBytes(t, 64, 64)); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin upload: %d", r.StatusCode)
+	}
+}
+
+func TestBrandingUpdateAndAssets(t *testing.T) {
+	h := newHarness(t, "orbit-admin")
+	h.login()
+
+	bad := map[string]string{"appName": "", "primaryColor": "red", "accentColor": "#12345", "supportUrl": "javascript:alert(1)", "supportEmail": "Eve <e@x.test>"}
+	resp := h.write("PUT", "/api/admin/branding", bad)
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid branding accepted: %d", resp.StatusCode)
+	}
+	var e apiError
+	json.NewDecoder(resp.Body).Decode(&e)
+	for _, f := range []string{"appName", "primaryColor", "accentColor", "supportUrl", "supportEmail"} {
+		if !strings.Contains(e.Message, f) {
+			t.Errorf("no error for %s: %q", f, e.Message)
+		}
+	}
+
+	good := map[string]string{"appName": " Velessoft ID ", "primaryColor": "#8b7cf6", "accentColor": "#B8EF65",
+		"landingTitle": "Вход", "supportEmail": "help@example.com", "supportUrl": "https://help.example.com"}
+	var v brandingView
+	h.decode(h.write("PUT", "/api/admin/branding", good), http.StatusOK, &v)
+	if v.AppName != "Velessoft ID" || v.PrimaryColor != "#8B7CF6" {
+		t.Fatalf("normalized: %+v", v)
+	}
+
+	h.decode(h.uploadTo("/api/admin/branding/favicon", pngBytes(t, 600, 400)), http.StatusOK, &v)
+	if v.FaviconURL == "" || v.AppName != "Velessoft ID" {
+		t.Fatalf("after upload: %+v", v)
+	}
+	r := h.do("GET", v.FaviconURL, nil, nil)
+	img, err := png.Decode(r.Body)
+	if r.StatusCode != http.StatusOK || err != nil || img.Bounds().Dx() != 256 || img.Bounds().Dy() != 256 {
+		t.Fatalf("favicon: %d %v", r.StatusCode, err)
+	}
+	if r := h.uploadTo("/api/admin/branding/logo", []byte("<svg/>")); r.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("svg logo: %d", r.StatusCode)
+	}
+	if r := h.uploadTo("/api/admin/branding/script", pngBytes(t, 64, 64)); r.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown asset: %d", r.StatusCode)
+	}
+
+	h.decode(h.write("DELETE", "/api/admin/branding/favicon", nil), http.StatusOK, &v)
+	if v.FaviconURL != "" || len(h.files.Objects) != 0 {
+		t.Fatalf("after delete: %+v objects=%d", v, len(h.files.Objects))
+	}
+	if !slices.Contains(h.store.AuditActions(), "admin.branding.update") {
+		t.Fatal("branding update not audited")
+	}
+}
+
+func TestReadyz(t *testing.T) {
+	h := newHarness(t)
+	if r := h.do("GET", "/readyz", nil, nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("readyz: %d", r.StatusCode)
+	}
+}

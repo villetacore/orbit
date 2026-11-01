@@ -1,10 +1,11 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LayoutGrid, Pencil, Plus, RefreshCw, ScrollText, Trash2 } from 'lucide-react';
+import { LayoutGrid, Palette, Pencil, Plus, RefreshCw, ScrollText, Trash2 } from 'lucide-react';
 import { useCallback, useState, type FormEvent } from 'react';
 import { api, errorMessage, type AdminService, type AuditEvent, type ServiceInput, type ServiceStatus } from '../api';
 import { ServiceIcon, StatusBadge, servicesQueryKey } from '../components/ServiceCard';
 import { Drawer, EmptyState, PageHeader, Skeleton } from '../components/ui';
 import { formatDateTime, formatRelative } from '../lib/format';
+import { BrandingSettings } from './BrandingSettings';
 
 const adminServicesKey = ['admin', 'services'] as const;
 
@@ -27,14 +28,14 @@ const emptyInput: ServiceInput = {
 };
 
 export function Admin() {
-  const [tab, setTab] = useState<'catalog' | 'audit'>('catalog');
+  const [tab, setTab] = useState<'catalog' | 'branding' | 'audit'>('catalog');
   const [editing, setEditing] = useState<AdminService | 'new' | null>(null);
 
   return (
     <div className="page">
       <PageHeader
         title="Администрирование"
-        description="Каталог корпоративных сервисов и журнал важных действий."
+        description="Каталог сервисов, оформление портала и журнал важных действий."
         actions={
           tab === 'catalog' && (
             <button className="btn btn-primary" onClick={() => setEditing('new')}>
@@ -49,12 +50,18 @@ export function Admin() {
           <LayoutGrid size={15} />
           Каталог
         </button>
+        <button role="tab" aria-selected={tab === 'branding'} onClick={() => setTab('branding')}>
+          <Palette size={15} />
+          Оформление
+        </button>
         <button role="tab" aria-selected={tab === 'audit'} onClick={() => setTab('audit')}>
           <ScrollText size={15} />
           Журнал аудита
         </button>
       </div>
-      {tab === 'catalog' ? <CatalogAdmin editing={editing} setEditing={setEditing} /> : <AuditLog />}
+      {tab === 'catalog' && <CatalogAdmin editing={editing} setEditing={setEditing} />}
+      {tab === 'branding' && <BrandingSettings />}
+      {tab === 'audit' && <AuditLog />}
     </div>
   );
 }
@@ -304,6 +311,11 @@ const actionLabels: Record<string, string> = {
   'admin.service.create': 'Сервис создан',
   'admin.service.update': 'Сервис изменён',
   'admin.service.delete': 'Сервис удалён',
+  'admin.branding.update': 'Оформление изменено',
+  'admin.branding.favicon': 'Фавикон загружен',
+  'admin.branding.logo': 'Логотип загружен',
+  'admin.branding.favicon.delete': 'Фавикон удалён',
+  'admin.branding.logo.delete': 'Логотип удалён',
 };
 
 function actionBadge(action: string): string {

@@ -5,7 +5,9 @@ import { BrowserRouter } from 'react-router';
 import { ApiError } from './api';
 import { App } from './App';
 import { meQueryKey } from './auth';
-import '@fontsource-variable/inter';
+import { BrandingProvider } from './branding';
+import '@fontsource-variable/manrope';
+import '@fontsource-variable/onest';
 import './styles.css';
 
 // An expired session on any other request sends the user back through
@@ -32,9 +34,11 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <BrandingProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </BrandingProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

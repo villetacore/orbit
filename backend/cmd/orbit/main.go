@@ -92,6 +92,7 @@ func run(log *slog.Logger) error {
 		Store:    st,
 		Avatars:  avatars,
 		Logger:   log,
+		Ready:    st.Ping,
 	})
 
 	go sweepSessions(ctx, log, st)

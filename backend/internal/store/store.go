@@ -87,6 +87,10 @@ type Store interface {
 	Favorites(ctx context.Context, sub string) (map[string]bool, error)
 	SetFavorite(ctx context.Context, sub, serviceID string, favorite bool) error
 
+	// GetBranding returns the saved branding, or DefaultBranding if none.
+	GetBranding(ctx context.Context) (Branding, error)
+	SaveBranding(ctx context.Context, b Branding, actor string) error
+
 	RecordAudit(ctx context.Context, e AuditEvent) error
 	ListAudit(ctx context.Context, limit int, beforeID int64) ([]AuditEvent, error)
 }

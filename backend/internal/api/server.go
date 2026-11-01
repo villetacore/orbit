@@ -46,6 +46,9 @@ type Deps struct {
 	Store    store.Store
 	Avatars  avatar.Storage
 	Logger   *slog.Logger
+	// Ready reports whether dependencies (the database) are reachable; nil
+	// means always ready.
+	Ready func(ctx context.Context) error
 }
 
 type Server struct {
@@ -57,6 +60,7 @@ type Server struct {
 	store    store.Store
 	avatars  avatar.Storage
 	log      *slog.Logger
+	ready    func(ctx context.Context) error
 
 	authLimiter   *limiter
 	uploadLimiter *limiter
@@ -73,6 +77,7 @@ func New(d Deps) http.Handler {
 		store:    d.Store,
 		avatars:  d.Avatars,
 		log:      d.Logger,
+		ready:    d.Ready,
 
 		authLimiter:   newLimiter(30, 10),
 		uploadLimiter: newLimiter(10, 3),
@@ -92,6 +97,7 @@ func (s *Server) routes() http.Handler {
 	r.Use(middleware.RequestID, s.requestLogger, middleware.Recoverer, s.securityHeaders)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) }) //nolint:errcheck
+	r.Get("/readyz", s.handleReady)
 
 	r.Route("/auth", func(r chi.Router) {
 		r.Use(s.rateLimit(s.authLimiter))
@@ -107,6 +113,8 @@ func (s *Server) routes() http.Handler {
 		r.Use(noStore)
 		r.Get("/config", s.handleConfig)
 		r.Get("/users/{sub}/avatar", s.handleGetAvatar)
+		r.Get("/branding", s.handleBranding)
+		r.Get("/branding/{asset}", s.handleBrandingAsset)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireSession, s.requireCSRF, s.limitWrites)
@@ -125,6 +133,10 @@ func (s *Server) routes() http.Handler {
 				r.Put("/services/{id}", s.handleAdminUpdateService)
 				r.Delete("/services/{id}", s.handleAdminDeleteService)
 				r.Get("/audit", s.handleAdminAudit)
+				r.Get("/branding", s.handleAdminBranding)
+				r.Put("/branding", s.handleAdminUpdateBranding)
+				r.With(s.rateLimit(s.uploadLimiter)).Put("/branding/{asset}", s.handleAdminUploadBrandingAsset)
+				r.Delete("/branding/{asset}", s.handleAdminDeleteBrandingAsset)
 			})
 		})
 
@@ -137,6 +149,21 @@ func (s *Server) routes() http.Handler {
 		r.NotFound(spaHandler(s.cfg.StaticDir))
 	}
 	return r
+}
+
+// handleReady is the readiness probe: unready while the database is down so
+// Kubernetes stops routing traffic to this pod.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if s.ready != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.ready(ctx); err != nil {
+			s.log.Warn("not ready", "err", err)
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	w.Write([]byte("ok")) //nolint:errcheck
 }
 
 // spaHandler serves the built frontend and falls back to index.html for

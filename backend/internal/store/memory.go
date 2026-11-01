@@ -18,6 +18,7 @@ type Memory struct {
 	services  map[string]Service
 	favorites map[string]map[string]bool
 	audit     []AuditEvent
+	branding  *Branding
 }
 
 func NewMemory() *Memory {
@@ -173,6 +174,22 @@ func (m *Memory) SetFavorite(_ context.Context, sub, serviceID string, favorite 
 		m.favorites[sub] = map[string]bool{}
 	}
 	m.favorites[sub][serviceID] = favorite
+	return nil
+}
+
+func (m *Memory) GetBranding(context.Context) (Branding, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.branding == nil {
+		return DefaultBranding(), nil
+	}
+	return *m.branding, nil
+}
+
+func (m *Memory) SaveBranding(_ context.Context, b Branding, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.branding = &b
 	return nil
 }
 
