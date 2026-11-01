@@ -78,8 +78,38 @@ func (f *fakeOIDC) LogoutURL(idToken, redirect string) string {
 }
 
 type fakeKeycloak struct {
-	mu    sync.Mutex
-	users map[string]*keycloak.User
+	mu          sync.Mutex
+	users       map[string]*keycloak.User
+	sessions    map[string][]keycloak.Session
+	credentials map[string][]keycloak.Credential
+	logouts     []string
+	emails      map[string][]string
+	emailErr    error
+	passwords   map[string]string
+}
+
+func (k *fakeKeycloak) CreateUser(_ context.Context, u *keycloak.User) (string, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for _, x := range k.users {
+		if strings.EqualFold(x.Username, u.Username) || u.Email != "" && strings.EqualFold(x.Email, u.Email) {
+			return "", keycloak.ErrConflict
+		}
+	}
+	cp := *u
+	cp.ID = "new-" + u.Username
+	k.users[cp.ID] = &cp
+	return cp.ID, nil
+}
+
+func (k *fakeKeycloak) SetPassword(_ context.Context, id, password string, _ bool) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.passwords == nil {
+		k.passwords = map[string]string{}
+	}
+	k.passwords[id] = password
+	return nil
 }
 
 func (k *fakeKeycloak) GetUser(_ context.Context, id string) (*keycloak.User, error) {
@@ -109,6 +139,68 @@ func (k *fakeKeycloak) UserGroups(context.Context, string) ([]keycloak.Group, er
 	return []keycloak.Group{{ID: "g1", Name: "Engineering", Path: "/Engineering"}}, nil
 }
 
+func (k *fakeKeycloak) ListUsers(_ context.Context, search string, first, max int) ([]keycloak.User, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	var out []keycloak.User
+	for _, u := range k.users {
+		if search == "" || strings.Contains(strings.ToLower(u.Username+" "+u.FirstName+" "+u.LastName+" "+u.Email), strings.ToLower(search)) {
+			out = append(out, *u)
+		}
+	}
+	slices.SortFunc(out, func(a, b keycloak.User) int { return strings.Compare(a.Username, b.Username) })
+	if first >= len(out) {
+		return nil, nil
+	}
+	return out[first:min(first+max, len(out))], nil
+}
+
+func (k *fakeKeycloak) UserRealmRoles(context.Context, string) ([]keycloak.Role, error) {
+	return []keycloak.Role{{Name: "staff"}, {Name: "default-roles-orbit"}}, nil
+}
+
+func (k *fakeKeycloak) UserSessions(_ context.Context, id string) ([]keycloak.Session, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.sessions[id]), nil
+}
+
+func (k *fakeKeycloak) DeleteSession(_ context.Context, sessionID string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for user, ss := range k.sessions {
+		k.sessions[user] = slices.DeleteFunc(ss, func(s keycloak.Session) bool { return s.ID == sessionID })
+	}
+	return nil
+}
+
+func (k *fakeKeycloak) LogoutUser(_ context.Context, id string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.logouts = append(k.logouts, id)
+	delete(k.sessions, id)
+	return nil
+}
+
+func (k *fakeKeycloak) UserCredentials(_ context.Context, id string) ([]keycloak.Credential, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.credentials[id]), nil
+}
+
+func (k *fakeKeycloak) ExecuteActionsEmail(_ context.Context, id string, actions []string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.emailErr != nil {
+		return k.emailErr
+	}
+	if k.emails == nil {
+		k.emails = map[string][]string{}
+	}
+	k.emails[id] = actions
+	return nil
+}
+
 const publicURL = "http://orbit.test"
 
 type harness struct {
@@ -119,6 +211,7 @@ type harness struct {
 	kc     *fakeKeycloak
 	store  *store.Memory
 	files  *avatar.Memory
+	cfg    *config.Config
 	csrf   string
 }
 
@@ -138,15 +231,31 @@ func newHarness(t *testing.T, roles ...string) *harness {
 		t.Fatal(err)
 	}
 	h := &harness{
-		t: t,
+		t:   t,
+		cfg: cfg,
 		oidc: &fakeOIDC{
-			claims: auth.Claims{Subject: "user-1", PreferredUsername: "alice", Email: "alice@example.com", Roles: roles},
+			claims: auth.Claims{Subject: "user-1", PreferredUsername: "alice", Email: "alice@example.com", Roles: roles, SessionID: "s-current"},
 			expiry: time.Now().Add(time.Hour),
 		},
 		kc: &fakeKeycloak{users: map[string]*keycloak.User{
 			"user-1": {ID: "user-1", Username: "alice", Email: "alice@example.com", FirstName: "Alice", LastName: "A",
 				Enabled: true, Attributes: map[string][]string{"department": {"R&D"}}},
-		}},
+			"user-2": {ID: "user-2", Username: "bob", Email: "bob@example.com", FirstName: "Bob", LastName: "B",
+				Enabled: true, Attributes: map[string][]string{"department": {"Sales"}, "secret": {"x"}}},
+			"user-3": {ID: "user-3", Username: "carol", FirstName: "Carol", Enabled: false},
+			"svc":    {ID: "svc", Username: "service-account-orbit-admin-api", Enabled: true, ServiceAccountClientID: "orbit-admin-api"},
+		},
+			sessions: map[string][]keycloak.Session{
+				"user-1": {
+					{ID: "s-current", IPAddress: "10.0.0.1", Start: 1, LastAccess: 2, Clients: map[string]string{"c1": "orbit-web"}},
+					{ID: "s-old", IPAddress: "10.0.0.2", Start: 1, LastAccess: 3},
+				},
+				"user-2": {{ID: "s-bob", IPAddress: "10.0.0.3"}},
+			},
+			credentials: map[string][]keycloak.Credential{
+				"user-1": {{ID: "c-pw", Type: "password"}, {ID: "c-otp", Type: "otp", UserLabel: "Phone"}},
+			},
+		},
 		store: store.NewMemory(),
 		files: avatar.NewMemory(),
 	}

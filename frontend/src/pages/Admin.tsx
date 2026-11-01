@@ -1,11 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LayoutGrid, Palette, Pencil, Plus, RefreshCw, ScrollText, Trash2 } from 'lucide-react';
+import { LayoutGrid, Palette, Pencil, Plus, RefreshCw, ScrollText, Trash2, UserPlus } from 'lucide-react';
 import { useCallback, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router';
 import { api, errorMessage, type AdminService, type AuditEvent, type ServiceInput, type ServiceStatus } from '../api';
 import { ServiceIcon, StatusBadge, servicesQueryKey } from '../components/ServiceCard';
 import { Drawer, EmptyState, Modal, PageHeader, Skeleton } from '../components/ui';
 import { formatDateTime, formatRelative } from '../lib/format';
 import { BrandingSettings } from './BrandingSettings';
+import { Registrations, registrationsKey } from './Registrations';
 
 const adminServicesKey = ['admin', 'services'] as const;
 
@@ -28,14 +30,22 @@ const emptyInput: ServiceInput = {
 };
 
 export function Admin() {
-  const [tab, setTab] = useState<'catalog' | 'branding' | 'audit'>('catalog');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<'catalog' | 'registrations' | 'branding' | 'audit'>(
+    params.get('tab') === 'registrations' ? 'registrations' : 'catalog',
+  );
+  const pending = useQuery({
+    queryKey: [...registrationsKey, 'pending'],
+    queryFn: () => api.admin.registrations('pending'),
+  });
+  const pendingCount = pending.data?.registrations.length ?? 0;
   const [editing, setEditing] = useState<AdminService | 'new' | null>(null);
 
   return (
     <div className="page">
       <PageHeader
         title="Администрирование"
-        description="Каталог сервисов, оформление портала и журнал важных действий."
+        description="Каталог сервисов, заявки на регистрацию, оформление портала и журнал важных действий."
         actions={
           tab === 'catalog' && (
             <button className="btn btn-primary" onClick={() => setEditing('new')}>
@@ -50,6 +60,11 @@ export function Admin() {
           <LayoutGrid size={15} />
           Каталог
         </button>
+        <button role="tab" aria-selected={tab === 'registrations'} onClick={() => setTab('registrations')}>
+          <UserPlus size={15} />
+          Заявки
+          {pendingCount > 0 && <span className="count">{pendingCount}</span>}
+        </button>
         <button role="tab" aria-selected={tab === 'branding'} onClick={() => setTab('branding')}>
           <Palette size={15} />
           Оформление
@@ -60,6 +75,7 @@ export function Admin() {
         </button>
       </div>
       {tab === 'catalog' && <CatalogAdmin editing={editing} setEditing={setEditing} />}
+      {tab === 'registrations' && <Registrations />}
       {tab === 'branding' && <BrandingSettings />}
       {tab === 'audit' && <AuditLog />}
     </div>

@@ -1,5 +1,15 @@
-import { useMutation } from '@tanstack/react-query';
-import { LayoutDashboard, LayoutGrid, LifeBuoy, LogOut, Menu, Settings2, ShieldCheck, UserRound } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import {
+  LayoutDashboard,
+  LayoutGrid,
+  LifeBuoy,
+  LogOut,
+  Menu,
+  Settings2,
+  ShieldCheck,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { api } from '../api';
@@ -20,11 +30,19 @@ export function Layout() {
   });
 
   useEffect(() => setOpen(false), [pathname]);
+  const pending = useQuery({
+    queryKey: ['admin', 'registrations', 'pending'],
+    queryFn: () => api.admin.registrations('pending'),
+    enabled: me.isAdmin,
+    refetchInterval: 60_000,
+  });
+  const pendingCount = pending.data?.registrations.length ?? 0;
 
   const displayName = me.name || me.username;
   const links = [
     { to: '/', label: 'Главная', icon: LayoutDashboard, end: true },
     { to: '/services', label: 'Сервисы', icon: LayoutGrid },
+    { to: '/people', label: 'Люди', icon: Users },
     { to: '/profile', label: 'Профиль', icon: UserRound },
     { to: '/security', label: 'Безопасность', icon: ShieldCheck },
   ];
@@ -48,6 +66,11 @@ export function Layout() {
               <NavLink to="/admin" className="nav-link">
                 <Settings2 size={18} />
                 Администрирование
+                {pendingCount > 0 && (
+                  <span className="count" title={`Заявок на регистрацию: ${pendingCount}`}>
+                    {pendingCount}
+                  </span>
+                )}
               </NavLink>
             </>
           )}

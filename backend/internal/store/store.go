@@ -93,4 +93,6 @@ type Store interface {
 
 	RecordAudit(ctx context.Context, e AuditEvent) error
 	ListAudit(ctx context.Context, limit int, beforeID int64) ([]AuditEvent, error)
+
+	Registrations
 }

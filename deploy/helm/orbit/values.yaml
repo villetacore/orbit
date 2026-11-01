@@ -99,6 +99,9 @@ config:
   # that overwrites that header.
   trustProxy: true
   seedDemo: false
+  # Anyone may request an account on the sign-in page; an administrator
+  # approves it in Администрирование → Заявки before the Keycloak user exists.
+  registrationEnabled: false
   avatarMaxBytes: 5242880
   extraEnv: []
   #  - name: ORBIT_SOMETHING

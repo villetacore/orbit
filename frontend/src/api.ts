@@ -106,6 +106,90 @@ export interface AuditEvent {
   details: Record<string, unknown>;
 }
 
+export interface AccountSession {
+  id: string;
+  ipAddress: string;
+  started: string;
+  lastAccess: string;
+  clients: string[];
+  current: boolean;
+}
+
+export interface Credential {
+  id: string;
+  type: string;
+  label: string;
+  createdAt: string | null;
+  removable: boolean;
+}
+
+export interface DirectoryUser {
+  sub: string;
+  username: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  enabled: boolean;
+  attributes: { name: string; value: string }[];
+  avatarUrl: string;
+}
+
+// Account state (emailVerified and below) is only sent to administrators.
+export interface UserDetail extends DirectoryUser {
+  groups: string[];
+  self: boolean;
+  emailVerified?: boolean;
+  createdAt?: string;
+  roles?: string[];
+  sessions?: AccountSession[];
+  credentials?: Credential[];
+  attributeNames?: string[];
+}
+
+export interface AdminUserUpdate {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  enabled?: boolean;
+  attributes?: Record<string, string>;
+}
+
+export type EmailAction = 'UPDATE_PASSWORD' | 'VERIFY_EMAIL' | 'CONFIGURE_TOTP';
+
+export interface RegistrationInput {
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  comment: string;
+  website: string;
+}
+
+export type RegistrationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface Registration {
+  id: number;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  comment: string;
+  status: RegistrationStatus;
+  ip: string;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedBy: string;
+  userSub: string;
+}
+
+export interface ApproveResult {
+  registration: Registration;
+  userSub: string;
+  delivery: 'email' | 'password' | 'none';
+  temporaryPassword?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -157,6 +241,7 @@ export const api = {
   config: () => request<PublicConfig>('GET', '/api/config'),
   branding: () => request<Branding>('GET', '/api/branding'),
   logout: () => request<{ redirectUrl: string }>('POST', '/auth/logout'),
+  register: (input: RegistrationInput) => request<{ status: 'pending' }>('POST', '/api/register', input),
 
   profile: () => request<Profile>('GET', '/api/profile'),
   updateProfile: (input: ProfileUpdate) => request<Profile>('PATCH', '/api/profile', input),
@@ -171,7 +256,26 @@ export const api = {
   setFavorite: (id: string, favorite: boolean) =>
     request<void>('PUT', `/api/services/${encodeURIComponent(id)}/favorite`, { favorite }),
 
+  sessions: () => request<{ sessions: AccountSession[] }>('GET', '/api/account/sessions'),
+  endSession: (id: string) => request<void>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
+  endOtherSessions: () => request<{ ended: number }>('POST', '/api/account/sessions/end-others'),
+  credentials: () => request<{ credentials: Credential[] }>('GET', '/api/account/credentials'),
+
+  users: (q: string, page: number) =>
+    request<{ users: DirectoryUser[]; hasMore: boolean }>('GET', `/api/users?q=${encodeURIComponent(q)}&page=${page}`),
+  user: (sub: string) => request<UserDetail>('GET', `/api/users/${encodeURIComponent(sub)}`),
+
   admin: {
+    registrations: (status: RegistrationStatus | '') =>
+      request<{ registrations: Registration[] }>('GET', `/api/admin/registrations?status=${status}`),
+    approveRegistration: (id: number, delivery: 'auto' | 'password') =>
+      request<ApproveResult>('POST', `/api/admin/registrations/${id}/approve`, { delivery }),
+    rejectRegistration: (id: number) => request<void>('POST', `/api/admin/registrations/${id}/reject`),
+    updateUser: (sub: string, input: AdminUserUpdate) =>
+      request<UserDetail>('PATCH', `/api/admin/users/${encodeURIComponent(sub)}`, input),
+    logoutUser: (sub: string) => request<void>('POST', `/api/admin/users/${encodeURIComponent(sub)}/logout`),
+    actionsEmail: (sub: string, actions: EmailAction[]) =>
+      request<void>('POST', `/api/admin/users/${encodeURIComponent(sub)}/actions-email`, { actions }),
     services: () => request<{ services: AdminService[] }>('GET', '/api/admin/services'),
     createService: (input: ServiceInput) => request<AdminService>('POST', '/api/admin/services', input),
     updateService: (id: string, input: ServiceInput) =>

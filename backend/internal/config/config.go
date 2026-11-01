@@ -21,6 +21,8 @@ type Config struct {
 	CookieSecure  bool
 	TrustProxy    bool
 	SeedDemo      bool
+	// RegistrationEnabled lets anyone request an account; an administrator approves it.
+	RegistrationEnabled bool
 
 	KeycloakURL         string // public Keycloak base URL, e.g. https://sso.example.com
 	KeycloakInternalURL string // optional base URL used by the backend to reach Keycloak
@@ -61,6 +63,7 @@ func Load() (*Config, error) {
 		SessionSecret:       env("ORBIT_SESSION_SECRET", ""),
 		TrustProxy:          envBool("ORBIT_TRUST_PROXY", false),
 		SeedDemo:            envBool("ORBIT_SEED_DEMO", false),
+		RegistrationEnabled: envBool("ORBIT_REGISTRATION_ENABLED", false),
 		KeycloakURL:         strings.TrimRight(env("ORBIT_KEYCLOAK_URL", "http://localhost:8081"), "/"),
 		KeycloakInternalURL: strings.TrimRight(env("ORBIT_KEYCLOAK_INTERNAL_URL", ""), "/"),
 		Realm:               env("ORBIT_KEYCLOAK_REALM", "orbit"),

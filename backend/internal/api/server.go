@@ -35,6 +35,15 @@ type Keycloak interface {
 	GetUser(ctx context.Context, id string) (*keycloak.User, error)
 	UpdateUser(ctx context.Context, u *keycloak.User) error
 	UserGroups(ctx context.Context, id string) ([]keycloak.Group, error)
+	ListUsers(ctx context.Context, search string, first, max int) ([]keycloak.User, error)
+	UserRealmRoles(ctx context.Context, id string) ([]keycloak.Role, error)
+	UserSessions(ctx context.Context, id string) ([]keycloak.Session, error)
+	DeleteSession(ctx context.Context, sessionID string) error
+	LogoutUser(ctx context.Context, id string) error
+	UserCredentials(ctx context.Context, id string) ([]keycloak.Credential, error)
+	ExecuteActionsEmail(ctx context.Context, id string, actions []string) error
+	CreateUser(ctx context.Context, u *keycloak.User) (string, error)
+	SetPassword(ctx context.Context, id, password string, temporary bool) error
 }
 
 type Deps struct {
@@ -62,9 +71,10 @@ type Server struct {
 	log      *slog.Logger
 	ready    func(ctx context.Context) error
 
-	authLimiter   *limiter
-	uploadLimiter *limiter
-	writeLimiter  *limiter
+	authLimiter     *limiter
+	uploadLimiter   *limiter
+	writeLimiter    *limiter
+	registerLimiter *limiter
 }
 
 func New(d Deps) http.Handler {
@@ -82,6 +92,8 @@ func New(d Deps) http.Handler {
 		authLimiter:   newLimiter(30, 10),
 		uploadLimiter: newLimiter(10, 3),
 		writeLimiter:  newLimiter(120, 30),
+		// Sign-up requests are public: ten per IP and minute, with room to fix typos.
+		registerLimiter: newLimiter(10, 10),
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -115,6 +127,7 @@ func (s *Server) routes() http.Handler {
 		r.Get("/users/{sub}/avatar", s.handleGetAvatar)
 		r.Get("/branding", s.handleBranding)
 		r.Get("/branding/{asset}", s.handleBrandingAsset)
+		r.With(s.rateLimit(s.registerLimiter)).Post("/register", s.handleRegister)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireSession, s.requireCSRF, s.limitWrites)
@@ -125,6 +138,12 @@ func (s *Server) routes() http.Handler {
 			r.Delete("/profile/avatar", s.handleDeleteAvatar)
 			r.Get("/services", s.handleListServices)
 			r.Put("/services/{id}/favorite", s.handleSetFavorite)
+			r.Get("/account/sessions", s.handleAccountSessions)
+			r.Delete("/account/sessions/{id}", s.handleAccountEndSession)
+			r.Post("/account/sessions/end-others", s.handleAccountEndOtherSessions)
+			r.Get("/account/credentials", s.handleAccountCredentials)
+			r.Get("/users", s.handleListUsers)
+			r.Get("/users/{sub}", s.handleGetUser)
 
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(s.requireAdmin)
@@ -137,6 +156,12 @@ func (s *Server) routes() http.Handler {
 				r.Put("/branding", s.handleAdminUpdateBranding)
 				r.With(s.rateLimit(s.uploadLimiter)).Put("/branding/{asset}", s.handleAdminUploadBrandingAsset)
 				r.Delete("/branding/{asset}", s.handleAdminDeleteBrandingAsset)
+				r.Get("/registrations", s.handleAdminListRegistrations)
+				r.Post("/registrations/{id}/approve", s.handleAdminApproveRegistration)
+				r.Post("/registrations/{id}/reject", s.handleAdminRejectRegistration)
+				r.Patch("/users/{sub}", s.handleAdminUpdateUser)
+				r.Post("/users/{sub}/logout", s.handleAdminLogoutUser)
+				r.Post("/users/{sub}/actions-email", s.handleAdminActionsEmail)
 			})
 		})
 

@@ -325,3 +325,73 @@ func (p *Postgres) ListAudit(ctx context.Context, limit int, beforeID int64) ([]
 	}
 	return out, rows.Err()
 }
+
+// --- registrations ---
+
+const registrationColumns = `id, username, email, first_name, last_name, comment, status, ip, created_at, decided_at, decided_by, user_sub`
+
+func scanRegistration(row pgx.Row) (*Registration, error) {
+	var r Registration
+	err := row.Scan(&r.ID, &r.Username, &r.Email, &r.FirstName, &r.LastName, &r.Comment, &r.Status, &r.IP,
+		&r.CreatedAt, &r.DecidedAt, &r.DecidedBy, &r.UserSub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &r, err
+}
+
+func (p *Postgres) CreateRegistration(ctx context.Context, r Registration) (*Registration, error) {
+	out, err := scanRegistration(p.pool.QueryRow(ctx, `
+		INSERT INTO registrations (username, email, first_name, last_name, comment, ip)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING `+registrationColumns,
+		r.Username, r.Email, r.FirstName, r.LastName, r.Comment, r.IP))
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return nil, ErrConflict
+	}
+	return out, err
+}
+
+func (p *Postgres) ListRegistrations(ctx context.Context, status RegistrationStatus, limit int) ([]Registration, error) {
+	rows, err := p.pool.Query(ctx, `SELECT `+registrationColumns+` FROM registrations
+		WHERE ($1 = '' OR status = $1) ORDER BY created_at DESC, id DESC LIMIT $2`, string(status), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Registration{}
+	for rows.Next() {
+		r, err := scanRegistration(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *r)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) GetRegistration(ctx context.Context, id int64) (*Registration, error) {
+	return scanRegistration(p.pool.QueryRow(ctx, `SELECT `+registrationColumns+` FROM registrations WHERE id = $1`, id))
+}
+
+func (p *Postgres) CountPendingRegistrations(ctx context.Context) (int, error) {
+	var n int
+	err := p.pool.QueryRow(ctx, `SELECT count(*) FROM registrations WHERE status = 'pending'`).Scan(&n)
+	return n, err
+}
+
+func (p *Postgres) DecideRegistration(ctx context.Context, id int64, status RegistrationStatus, actor, userSub string) error {
+	tag, err := p.pool.Exec(ctx, `
+		UPDATE registrations SET status = $2, decided_at = now(), decided_by = $3, user_sub = $4
+		WHERE id = $1 AND status = 'pending'`, id, string(status), actor, userSub)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		if _, err := p.GetRegistration(ctx, id); err != nil {
+			return err
+		}
+		return ErrConflict
+	}
+	return nil
+}

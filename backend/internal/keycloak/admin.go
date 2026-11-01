@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +20,11 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 )
 
-var ErrNotFound = errors.New("keycloak: not found")
+var (
+	ErrNotFound = errors.New("keycloak: not found")
+	// ErrConflict is a uniqueness violation, e.g. an email already in use.
+	ErrConflict = errors.New("keycloak: conflict")
+)
 
 type User struct {
 	ID               string              `json:"id"`
@@ -31,6 +36,9 @@ type User struct {
 	Enabled          bool                `json:"enabled"`
 	CreatedTimestamp int64               `json:"createdTimestamp,omitempty"`
 	Attributes       map[string][]string `json:"attributes"`
+	RequiredActions  []string            `json:"requiredActions,omitempty"`
+	// Set for service-account users of confidential clients.
+	ServiceAccountClientID string `json:"serviceAccountClientId,omitempty"`
 }
 
 // Attr returns the first value of a user attribute.
@@ -56,6 +64,28 @@ type Group struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+type Role struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Session is a Keycloak user session; Clients maps client IDs to names.
+type Session struct {
+	ID         string            `json:"id"`
+	IPAddress  string            `json:"ipAddress"`
+	Start      int64             `json:"start"`
+	LastAccess int64             `json:"lastAccess"`
+	Clients    map[string]string `json:"clients"`
+}
+
+// Credential omits secretData and credentialData on purpose.
+type Credential struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	UserLabel   string `json:"userLabel,omitempty"`
+	CreatedDate int64  `json:"createdDate,omitempty"`
 }
 
 type Admin struct {
@@ -97,6 +127,95 @@ func (a *Admin) UserGroups(ctx context.Context, id string) ([]Group, error) {
 	return gs, err
 }
 
+// CreateUser creates a user and returns its ID (from the Location header).
+// ErrConflict means the username or email is taken.
+func (a *Admin) CreateUser(ctx context.Context, u *User) (string, error) {
+	b, err := json.Marshal(u)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+"/admin/realms/"+url.PathEscape(a.realm)+"/users", bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("keycloak create user: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return "", ErrConflict
+	}
+	if resp.StatusCode != http.StatusCreated {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("keycloak create user: status %d: %s", resp.StatusCode, msg)
+	}
+	loc := resp.Header.Get("Location")
+	id := loc[strings.LastIndex(loc, "/")+1:]
+	if id == "" {
+		return "", errors.New("keycloak create user: no id in Location")
+	}
+	return id, nil
+}
+
+// SetPassword sets a password; temporary forces a change at next sign-in.
+func (a *Admin) SetPassword(ctx context.Context, id, password string, temporary bool) error {
+	body := map[string]any{"type": "password", "value": password, "temporary": temporary}
+	return a.do(ctx, http.MethodPut, "/users/"+url.PathEscape(id)+"/reset-password", body, nil)
+}
+
+// ListUsers searches users by username, name or email ("" lists everyone).
+func (a *Admin) ListUsers(ctx context.Context, search string, first, max int) ([]User, error) {
+	q := url.Values{}
+	if search != "" {
+		q.Set("search", search)
+	}
+	q.Set("first", strconv.Itoa(first))
+	q.Set("max", strconv.Itoa(max))
+	// The full representation carries attributes (department, picture...).
+	q.Set("briefRepresentation", "false")
+	var us []User
+	err := a.do(ctx, http.MethodGet, "/users?"+q.Encode(), nil, &us)
+	return us, err
+}
+
+// UserRealmRoles returns the user's effective realm roles.
+func (a *Admin) UserRealmRoles(ctx context.Context, id string) ([]Role, error) {
+	var rs []Role
+	err := a.do(ctx, http.MethodGet, "/users/"+url.PathEscape(id)+"/role-mappings/realm/composite?briefRepresentation=true", nil, &rs)
+	return rs, err
+}
+
+func (a *Admin) UserSessions(ctx context.Context, id string) ([]Session, error) {
+	var ss []Session
+	err := a.do(ctx, http.MethodGet, "/users/"+url.PathEscape(id)+"/sessions", nil, &ss)
+	return ss, err
+}
+
+// DeleteSession ends one user session in the realm.
+func (a *Admin) DeleteSession(ctx context.Context, sessionID string) error {
+	return a.do(ctx, http.MethodDelete, "/sessions/"+url.PathEscape(sessionID), nil, nil)
+}
+
+// LogoutUser ends all of the user's sessions.
+func (a *Admin) LogoutUser(ctx context.Context, id string) error {
+	return a.do(ctx, http.MethodPost, "/users/"+url.PathEscape(id)+"/logout", nil, nil)
+}
+
+// UserCredentials lists the user's credentials; secret data is never requested.
+func (a *Admin) UserCredentials(ctx context.Context, id string) ([]Credential, error) {
+	var cs []Credential
+	err := a.do(ctx, http.MethodGet, "/users/"+url.PathEscape(id)+"/credentials", nil, &cs)
+	return cs, err
+}
+
+// ExecuteActionsEmail emails the user a link to perform required actions
+// (UPDATE_PASSWORD, VERIFY_EMAIL, CONFIGURE_TOTP). Needs SMTP in the realm.
+func (a *Admin) ExecuteActionsEmail(ctx context.Context, id string, actions []string) error {
+	return a.do(ctx, http.MethodPut, "/users/"+url.PathEscape(id)+"/execute-actions-email", actions, nil)
+}
+
 func (a *Admin) do(ctx context.Context, method, path string, body, out any) error {
 	var rdr io.Reader
 	if body != nil {
@@ -121,6 +240,9 @@ func (a *Admin) do(ctx context.Context, method, path string, body, out any) erro
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		return ErrNotFound
+	}
+	if resp.StatusCode == http.StatusConflict {
+		return ErrConflict
 	}
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))

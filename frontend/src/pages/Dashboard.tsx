@@ -5,6 +5,7 @@ import {
   ChevronRight,
   KeyRound,
   LayoutGrid,
+  MonitorSmartphone,
   Pencil,
   Smartphone,
   Star,
@@ -14,6 +15,7 @@ import {
 import { Link } from 'react-router';
 import { api, errorMessage } from '../api';
 import { useMe } from '../auth';
+import { useBranding } from '../branding';
 import { Avatar } from '../components/Avatar';
 import { ServiceCard, servicesQueryKey } from '../components/ServiceCard';
 import { EmptyState, Skeleton } from '../components/ui';
@@ -21,6 +23,8 @@ import { greeting, plural } from '../lib/format';
 
 export function Dashboard() {
   const me = useMe();
+  const branding = useBranding();
+  const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'long' });
   const services = useQuery({ queryKey: servicesQueryKey, queryFn: api.services });
   const profile = useQuery({ queryKey: ['profile'], queryFn: api.profile });
 
@@ -33,28 +37,42 @@ export function Dashboard() {
 
   return (
     <div className="page">
-      <section className="card welcome">
-        <div className="welcome-cover" />
-        <div className="welcome-body">
-          <Avatar url={me.avatarUrl} name={displayName} size={88} />
-          <div className="welcome-text">
-            <h1>
-              {greeting()}, {firstName}
-            </h1>
-            <p>{subtitle}</p>
+      <div>
+        <section className="poster">
+          <div className="poster-top">
+            <span>{branding.appName} / корпоративный аккаунт</span>
+            <span>{today}</span>
           </div>
-          <div className="welcome-actions">
-            <Link to="/profile" className="btn">
-              <Pencil size={15} />
-              Профиль
-            </Link>
-            <Link to="/services" className="btn btn-primary">
-              <LayoutGrid size={15} />
-              Все сервисы
-            </Link>
+          <div className="poster-body">
+            <Avatar url={me.avatarUrl} name={displayName} size={104} />
+            <div className="poster-title">
+              <h1>
+                {greeting()},<br />
+                <span className="cutout">{firstName}</span>
+              </h1>
+              <p>{subtitle}</p>
+              <div className="poster-actions">
+                <Link to="/services" className="btn btn-primary">
+                  <LayoutGrid size={15} />
+                  Все сервисы
+                </Link>
+                <Link to="/profile" className="btn">
+                  <Pencil size={15} />
+                  Профиль
+                </Link>
+              </div>
+            </div>
           </div>
+          <div className="stamp" aria-hidden="true">
+            один
+            <br />
+            вход ↗
+          </div>
+        </section>
+        <div className="strip" aria-hidden="true">
+          sso / профиль / сервисы / безопасность / один вход для всего / by velessoft
         </div>
-      </section>
+      </div>
 
       <section className="stats">
         <Link to="/services" className="card stat">
@@ -69,7 +87,7 @@ export function Dashboard() {
           </div>
         </Link>
         <Link to="/services?favorites=1" className="card stat">
-          <span className="stat-icon lime">
+          <span className="stat-icon">
             <Star size={18} />
           </span>
           <div>
@@ -89,7 +107,7 @@ export function Dashboard() {
           </div>
         </Link>
         <Link to="/profile" className="card stat">
-          <span className="stat-icon info">
+          <span className="stat-icon">
             <Users size={18} />
           </span>
           <div>
@@ -141,8 +159,20 @@ export function Dashboard() {
           <ul className="card quick-list">
             <QuickLink to="/profile" icon={Camera} title="Обновить фото" text="Аватар для всех сервисов" />
             <QuickLink to="/profile" icon={UserRound} title="Личные данные" text="Имя, телефон, должность" />
-            <QuickLink href="/auth/action/UPDATE_PASSWORD" icon={KeyRound} title="Сменить пароль" text="Через Keycloak" />
-            <QuickLink href="/auth/action/CONFIGURE_TOTP" icon={Smartphone} title="Настроить OTP" text="Второй фактор входа" />
+            <QuickLink to="/people" icon={Users} title="Найти коллегу" text="Контакты и подразделения" />
+            <QuickLink to="/security" icon={MonitorSmartphone} title="Сессии и устройства" text="Где выполнен вход" />
+            <QuickLink
+              href="/auth/action/UPDATE_PASSWORD"
+              icon={KeyRound}
+              title="Сменить пароль"
+              text="Через Keycloak"
+            />
+            <QuickLink
+              href="/auth/action/CONFIGURE_TOTP"
+              icon={Smartphone}
+              title="Настроить OTP"
+              text="Второй фактор входа"
+            />
           </ul>
         </aside>
       </div>

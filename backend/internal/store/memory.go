@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,6 +20,7 @@ type Memory struct {
 	favorites map[string]map[string]bool
 	audit     []AuditEvent
 	branding  *Branding
+	regs      []Registration
 }
 
 func NewMemory() *Memory {
@@ -223,4 +225,68 @@ func (m *Memory) AuditActions() []string {
 		out[i] = e.Action
 	}
 	return out
+}
+
+func (m *Memory) CreateRegistration(_ context.Context, r Registration) (*Registration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, x := range m.regs {
+		if x.Status == RegistrationPending && (strings.EqualFold(x.Username, r.Username) || strings.EqualFold(x.Email, r.Email)) {
+			return nil, ErrConflict
+		}
+	}
+	r.ID = int64(len(m.regs) + 1)
+	r.Status = RegistrationPending
+	r.CreatedAt = time.Now().UTC()
+	m.regs = append(m.regs, r)
+	return &r, nil
+}
+
+func (m *Memory) ListRegistrations(_ context.Context, status RegistrationStatus, limit int) ([]Registration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Registration{}
+	for i := len(m.regs) - 1; i >= 0 && len(out) < limit; i-- {
+		if status == "" || m.regs[i].Status == status {
+			out = append(out, m.regs[i])
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) GetRegistration(_ context.Context, id int64) (*Registration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if id < 1 || id > int64(len(m.regs)) {
+		return nil, ErrNotFound
+	}
+	r := m.regs[id-1]
+	return &r, nil
+}
+
+func (m *Memory) CountPendingRegistrations(context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, r := range m.regs {
+		if r.Status == RegistrationPending {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *Memory) DecideRegistration(_ context.Context, id int64, status RegistrationStatus, actor, userSub string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if id < 1 || id > int64(len(m.regs)) {
+		return ErrNotFound
+	}
+	r := &m.regs[id-1]
+	if r.Status != RegistrationPending {
+		return ErrConflict
+	}
+	now := time.Now().UTC()
+	r.Status, r.DecidedAt, r.DecidedBy, r.UserSub = status, &now, actor, userSub
+	return nil
 }

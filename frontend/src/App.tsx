@@ -3,6 +3,7 @@ import { AuthGate, useMe } from './auth';
 import { Layout } from './components/Layout';
 import { Admin } from './pages/Admin';
 import { Dashboard } from './pages/Dashboard';
+import { People } from './pages/People';
 import { ProfilePage } from './pages/Profile';
 import { Security } from './pages/Security';
 import { Services } from './pages/Services';
@@ -20,6 +21,7 @@ export function App() {
           <Route index element={<Dashboard />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="services" element={<Services />} />
+          <Route path="people" element={<People />} />
           <Route path="security" element={<Security />} />
           <Route path="admin" element={<AdminRoute />} />
           <Route path="*" element={<Navigate to="/" replace />} />

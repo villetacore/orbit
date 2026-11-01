@@ -20,6 +20,7 @@ data:
   ORBIT_SESSION_TTL: {{ .Values.config.sessionTTL | quote }}
   ORBIT_TRUST_PROXY: {{ .Values.config.trustProxy | quote }}
   ORBIT_SEED_DEMO: {{ .Values.config.seedDemo | quote }}
+  ORBIT_REGISTRATION_ENABLED: {{ .Values.config.registrationEnabled | quote }}
   ORBIT_AVATAR_MAX_BYTES: {{ .Values.config.avatarMaxBytes | quote }}
   ORBIT_STORAGE_DRIVER: {{ .Values.storage.driver | quote }}
   {{- if eq .Values.storage.driver "s3" }}

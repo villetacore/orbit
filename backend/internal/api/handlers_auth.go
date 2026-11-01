@@ -42,9 +42,35 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.startLogin(w, r, safeReturnTo(r.URL.Query().Get("return_to")), nil)
 }
 
+// deleteCredentialAction is Keycloak's parameterized AIA for removing one of
+// the user's own credentials ("delete_credential:<id>"); Keycloak checks that
+// the credential belongs to the re-authenticated user.
+const deleteCredentialAction = "delete_credential:"
+
+func validAction(action string) bool {
+	if id, ok := strings.CutPrefix(action, deleteCredentialAction); ok {
+		return isKeycloakID(id)
+	}
+	return allowedActions[action]
+}
+
+// isKeycloakID accepts Keycloak entity IDs (UUIDs) and nothing that could
+// break out of a path segment or query value.
+func isKeycloakID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	action := chi.URLParam(r, "action")
-	if !allowedActions[action] {
+	if !validAction(action) {
 		writeError(w, http.StatusBadRequest, "bad_action", "Неподдерживаемое действие")
 		return
 	}
@@ -211,7 +237,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 			"applications":   acc + "/applications",
 		},
 		Actions:             actions,
-		RegistrationEnabled: false,
+		RegistrationEnabled: s.cfg.RegistrationEnabled,
 	})
 }
 

@@ -28,7 +28,6 @@ export function ServiceIcon({ service, size = 44 }: { service: IconSource; size?
     width: size,
     height: size,
     fontSize: size * 0.34,
-    borderRadius: size * 0.28,
     '--hue': hueFor(service.slug),
   } as CSSProperties;
   return (

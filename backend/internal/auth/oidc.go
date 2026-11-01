@@ -27,7 +27,9 @@ type Claims struct {
 	FamilyName        string   `json:"family_name"`
 	Roles             []string `json:"roles"`
 	Groups            []string `json:"groups"`
-	Nonce             string   `json:"nonce,omitempty"`
+	// SessionID is Keycloak's session ("sid"), used to mark the current session.
+	SessionID string `json:"sid,omitempty"`
+	Nonce     string `json:"nonce,omitempty"`
 }
 
 func (c Claims) HasRole(role string) bool { return slices.Contains(c.Roles, role) }
