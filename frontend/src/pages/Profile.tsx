@@ -62,12 +62,12 @@ export function ProfilePage() {
                 <div className="meta-text">
                   <small>Email</small>
                   <div title={p.email}>{p.email || '—'}</div>
+                  {p.email && (
+                    <span className={`badge ${p.emailVerified ? 'badge-ok' : 'badge-warn'}`}>
+                      {p.emailVerified ? 'подтверждён' : 'не подтверждён'}
+                    </span>
+                  )}
                 </div>
-                {p.email && (
-                  <span className={`badge ${p.emailVerified ? 'badge-ok' : 'badge-warn'}`}>
-                    {p.emailVerified ? 'подтверждён' : 'не подтверждён'}
-                  </span>
-                )}
               </li>
               <li>
                 <AtSign size={16} />

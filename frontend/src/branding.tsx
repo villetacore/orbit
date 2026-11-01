@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { api, type Branding } from './api';
-import { isHexColor, readableOn } from './lib/color';
+import { isHexColor, linkColors, readableOn } from './lib/color';
 
 export const brandingQueryKey = ['branding'] as const;
 
@@ -27,7 +27,12 @@ export function useBranding(): Branding {
 // CSS variables the theme derives its colors from.
 export function applyBranding(b: Branding) {
   const root = document.documentElement.style;
-  if (isHexColor(b.primaryColor)) root.setProperty('--brand-primary', b.primaryColor);
+  if (isHexColor(b.primaryColor)) {
+    root.setProperty('--brand-primary', b.primaryColor);
+    const links = linkColors(b.primaryColor);
+    root.setProperty('--link-light', links.light);
+    root.setProperty('--link-dark', links.dark);
+  }
   if (isHexColor(b.accentColor)) {
     root.setProperty('--brand-accent', b.accentColor);
     root.setProperty('--on-brand-accent', readableOn(b.accentColor));

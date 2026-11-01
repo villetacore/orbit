@@ -25,3 +25,32 @@ export function contrastRatio(a: string, b: string): number {
 export function readableOn(bg: string): string {
   return contrastRatio(bg, INK) >= contrastRatio(bg, WHITE) ? INK : WHITE;
 }
+
+function mix(a: string, b: string, t: number): string {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ch = (shift: number) => Math.round(((pa >> shift) & 255) * (1 - t) + ((pb >> shift) & 255) * t);
+  return '#' + [16, 8, 0].map((s) => ch(s).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+// ensureContrast moves fg toward `toward` until it reaches the target
+// contrast ratio against bg (WCAG AA for body text is 4.5).
+export function ensureContrast(fg: string, bg: string, toward: string, target = 4.5): string {
+  for (let t = 0; t <= 1; t += 0.02) {
+    const c = mix(fg, toward, t);
+    if (contrastRatio(c, bg) >= target) return c;
+  }
+  return toward;
+}
+
+// Link colors from the design system for the default violet; derived with
+// the same contrast guarantee for any other primary color.
+export const DEFAULT_PRIMARY = '#8B7CF6';
+
+export function linkColors(primary: string): { light: string; dark: string } {
+  if (primary.toUpperCase() === DEFAULT_PRIMARY) return { light: '#5845B8', dark: '#B6AAFF' };
+  return {
+    light: ensureContrast(primary, '#FFFFFF', INK, 5.5),
+    dark: ensureContrast(primary, '#222834', WHITE, 6),
+  };
+}

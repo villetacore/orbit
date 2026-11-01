@@ -1,6 +1,7 @@
-import { X, type LucideIcon } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { Moon, Sun, SunMoon, X, type LucideIcon } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useBranding } from '../branding';
+import { getTheme, setTheme, type ThemeChoice } from '../lib/theme';
 
 export function BrandMark({ size = 18 }: { size?: number }) {
   return (
@@ -19,6 +20,56 @@ export function BrandMark({ size = 18 }: { size?: number }) {
         />
       </svg>
     </span>
+  );
+}
+
+// VelessoftMark is the studio's VS sign from the velessoft design system.
+export function VelessoftMark({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={(size * 100) / 120} viewBox="0 0 120 100" fill="none" aria-hidden="true">
+      <path d="M6 22 31 88H45L79 9H61L37 67 23 22Z" fill="currentColor" />
+      <path
+        d="M88 10C104 9 115 18 116 30H100C99 25 94 23 87 25ZM83 39C96 43 116 46 116 64C116 83 98 94 76 88L64 82 71 67C82 76 99 75 99 66C99 60 88 59 76 54Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+// Signature links a product to the studio ("by velessoft").
+export function Signature() {
+  return (
+    <span className="signature">
+      <VelessoftMark size={18} />
+      by velessoft
+    </span>
+  );
+}
+
+const themeOrder: ThemeChoice[] = ['system', 'light', 'dark'];
+const themeInfo: Record<ThemeChoice, { label: string; icon: LucideIcon }> = {
+  system: { label: 'Тема: как в системе', icon: SunMoon },
+  light: { label: 'Тема: светлая', icon: Sun },
+  dark: { label: 'Тема: тёмная', icon: Moon },
+};
+
+export function ThemeSwitch() {
+  const [theme, setChoice] = useState<ThemeChoice>(getTheme);
+  const { label, icon: Icon } = themeInfo[theme];
+  return (
+    <button
+      type="button"
+      className="theme-switch"
+      onClick={() => {
+        const next = themeOrder[(themeOrder.indexOf(theme) + 1) % themeOrder.length]!;
+        setTheme(next);
+        setChoice(next);
+      }}
+      aria-label={`${label}. Переключить`}
+    >
+      <Icon size={18} />
+      {label}
+    </button>
   );
 }
 

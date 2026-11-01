@@ -6,8 +6,9 @@ import { ApiError } from './api';
 import { App } from './App';
 import { meQueryKey } from './auth';
 import { BrandingProvider } from './branding';
+import { applyTheme, getTheme } from './lib/theme';
 import '@fontsource-variable/manrope';
-import '@fontsource-variable/onest';
+import '@fontsource-variable/jetbrains-mono';
 import './styles.css';
 
 // An expired session on any other request sends the user back through
@@ -18,6 +19,9 @@ function onError(err: unknown) {
     void queryClient.invalidateQueries({ queryKey: meQueryKey });
   }
 }
+
+// Apply the saved theme before the first render to avoid a flash.
+applyTheme(getTheme());
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({

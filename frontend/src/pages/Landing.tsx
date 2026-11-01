@@ -1,7 +1,7 @@
 import { AlertCircle, ArrowUpRight, LayoutGrid, LifeBuoy, Lock, ShieldCheck, UserRound } from 'lucide-react';
 import { loginUrl } from '../api';
 import { useBranding } from '../branding';
-import { Brand } from '../components/ui';
+import { Brand, Signature } from '../components/ui';
 
 function Orbits() {
   return (
@@ -100,6 +100,7 @@ export function Landing() {
               Нужна помощь со входом
             </a>
           )}
+          <Signature />
         </div>
       </section>
     </div>

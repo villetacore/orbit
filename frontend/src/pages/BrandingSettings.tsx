@@ -203,9 +203,7 @@ function BrandingForm({ saved, done, setDone }: BrandingFormProps) {
       </form>
 
       <aside className="settings-preview">
-        <h3 className="muted small" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Предпросмотр
-        </h3>
+        <h3 className="eyebrow">Предпросмотр</h3>
         <Preview input={input} logoUrl={saved.logoUrl} faviconUrl={saved.faviconUrl} />
       </aside>
     </div>

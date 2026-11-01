@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Search, SearchX, Star } from 'lucide-react';
+import { AlertTriangle, RotateCcw, Search, SearchX, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, errorMessage } from '../api';
@@ -105,7 +105,21 @@ export function Services() {
           text={
             favoritesOnly && !query
               ? 'Нажмите на звёздочку у сервиса, чтобы закрепить его здесь и на главной.'
-              : 'Попробуйте изменить запрос или выбрать другую категорию.'
+              : query
+                ? `По запросу «${query}» ничего нет. Измените запрос или сбросьте фильтры.`
+                : 'В этой подборке нет сервисов.'
+          }
+          action={
+            <button
+              className="btn"
+              onClick={() => {
+                setQuery('');
+                setParams(new URLSearchParams(), { replace: true });
+              }}
+            >
+              <RotateCcw size={16} />
+              Сбросить фильтры
+            </button>
           }
         />
       )}

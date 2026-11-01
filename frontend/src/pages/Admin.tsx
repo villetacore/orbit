@@ -3,7 +3,7 @@ import { LayoutGrid, Palette, Pencil, Plus, RefreshCw, ScrollText, Trash2 } from
 import { useCallback, useState, type FormEvent } from 'react';
 import { api, errorMessage, type AdminService, type AuditEvent, type ServiceInput, type ServiceStatus } from '../api';
 import { ServiceIcon, StatusBadge, servicesQueryKey } from '../components/ServiceCard';
-import { Drawer, EmptyState, PageHeader, Skeleton } from '../components/ui';
+import { Drawer, EmptyState, Modal, PageHeader, Skeleton } from '../components/ui';
 import { formatDateTime, formatRelative } from '../lib/format';
 import { BrandingSettings } from './BrandingSettings';
 
@@ -81,18 +81,25 @@ function CatalogAdmin({
     void queryClient.invalidateQueries({ queryKey: servicesQueryKey });
   };
 
+  const [deleting, setDeleting] = useState<AdminService | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) => api.admin.deleteService(id),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setDeleting(null);
+      invalidate();
+    },
   });
   const close = useCallback(() => setEditing(null), [setEditing]);
+  const closeDelete = useCallback(() => {
+    setDeleting(null);
+    remove.reset();
+  }, [remove]);
 
   if (services.isPending) return <Skeleton height={320} />;
   if (services.isError) return <p className="form-error">{errorMessage(services.error)}</p>;
 
   return (
     <>
-      {remove.isError && <p className="form-error">{errorMessage(remove.error)}</p>}
       {services.data.services.length === 0 ? (
         <EmptyState
           icon={LayoutGrid}
@@ -126,7 +133,9 @@ function CatalogAdmin({
                       <ServiceIcon service={s} size={36} />
                       <div>
                         <strong>{s.name}</strong>
-                        <span title={s.url}>{s.url}</span>
+                        <span className="mono" title={s.url}>
+                          {s.url}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -155,11 +164,7 @@ function CatalogAdmin({
                       className="icon-btn danger"
                       aria-label={`Удалить ${s.name}`}
                       title="Удалить"
-                      onClick={() => {
-                        if (window.confirm(`Удалить сервис «${s.name}»? Он пропадёт из каталога у всех сотрудников.`)) {
-                          remove.mutate(s.id);
-                        }
-                      }}
+                      onClick={() => setDeleting(s)}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -169,6 +174,15 @@ function CatalogAdmin({
             </tbody>
           </table>
         </div>
+      )}
+      {deleting && (
+        <DeleteServiceDialog
+          service={deleting}
+          pending={remove.isPending}
+          error={remove.error}
+          onCancel={closeDelete}
+          onConfirm={() => remove.mutate(deleting.id)}
+        />
       )}
       {editing && (
         <ServiceForm
@@ -181,6 +195,73 @@ function CatalogAdmin({
         />
       )}
     </>
+  );
+}
+
+// Deleting is confirmed by typing the slug, as the design system requires
+// for destructive actions, and the dialog says what will be removed.
+function DeleteServiceDialog({
+  service,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  service: AdminService;
+  pending: boolean;
+  error: unknown;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [typed, setTyped] = useState('');
+  const matches = typed.trim() === service.slug;
+  return (
+    <Modal
+      title={`Удалить «${service.name}»?`}
+      onClose={onCancel}
+      footer={
+        <>
+          <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={pending}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger-solid"
+            onClick={onConfirm}
+            disabled={!matches || pending}
+            aria-busy={pending}
+          >
+            <Trash2 size={16} />
+            {pending ? 'Удаление…' : 'Удалить сервис'}
+          </button>
+        </>
+      }
+    >
+      <div className="card-body form">
+        <p>
+          Сервис пропадёт из каталога у всех сотрудников, вместе с отметками «Избранное». Ссылка <code>/go/{service.slug}</code>{' '}
+          перестанет работать. Записи в журнале аудита сохранятся.
+        </p>
+        <label className="field">
+          <span>
+            Введите <code>{service.slug}</code> для подтверждения
+          </span>
+          <input
+            className="mono"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        {error != null && (
+          <p className="form-error" role="alert">
+            {errorMessage(error)}
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -241,13 +322,16 @@ function ServiceForm({
         <label className="field">
           <span>Slug</span>
           <input
+            className="mono"
             value={input.slug}
             onChange={(e) => set('slug', e.target.value)}
             required
             pattern="[a-z0-9][a-z0-9\-]{1,49}"
             title="2–50 символов: строчные латинские буквы, цифры, дефис"
           />
-          <span className="field-hint">Адрес перехода: /go/{input.slug || 'slug'}</span>
+          <span className="field-hint">
+            Адрес перехода: <code>/go/{input.slug || 'slug'}</code>
+          </span>
         </label>
         <label className="field">
           <span>URL сервиса</span>

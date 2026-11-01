@@ -6,7 +6,7 @@ import { api } from '../api';
 import { useMe } from '../auth';
 import { useBranding } from '../branding';
 import { Avatar } from './Avatar';
-import { Brand } from './ui';
+import { Brand, Signature, ThemeSwitch } from './ui';
 
 export function Layout() {
   const me = useMe();
@@ -44,7 +44,7 @@ export function Layout() {
           ))}
           {me.isAdmin && (
             <>
-              <div className="nav-section">Управление</div>
+              <div className="nav-section eyebrow">Управление</div>
               <NavLink to="/admin" className="nav-link">
                 <Settings2 size={18} />
                 Администрирование
@@ -53,6 +53,7 @@ export function Layout() {
           )}
         </nav>
         <div className="sidebar-foot">
+          <ThemeSwitch />
           {support && (
             <a className="support-link" href={support} target="_blank" rel="noopener noreferrer">
               <LifeBuoy size={16} />
@@ -74,9 +75,10 @@ export function Layout() {
               aria-label="Выйти"
               title="Выйти"
             >
-              <LogOut size={17} />
+              <LogOut size={18} />
             </button>
           </div>
+          <Signature />
         </div>
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
