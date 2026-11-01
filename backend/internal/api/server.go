@@ -1,0 +1,220 @@
+// Package api is Orbit's HTTP layer: the OIDC backend-for-frontend endpoints
+// under /auth, the JSON API under /api and SSO launch links under /go.
+package api
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/villetacore/orbit/backend/internal/auth"
+	"github.com/villetacore/orbit/backend/internal/avatar"
+	"github.com/villetacore/orbit/backend/internal/config"
+	"github.com/villetacore/orbit/backend/internal/keycloak"
+	"github.com/villetacore/orbit/backend/internal/seal"
+	"github.com/villetacore/orbit/backend/internal/store"
+)
+
+// OIDC is the identity provider client (implemented by auth.Provider).
+type OIDC interface {
+	AuthCodeURL(state, nonce, verifier string, extra map[string]string) string
+	Exchange(ctx context.Context, code, verifier, nonce string) (auth.Claims, auth.Tokens, error)
+	Refresh(ctx context.Context, refreshToken string) (auth.Claims, auth.Tokens, error)
+	LogoutURL(idToken, postLogoutRedirect string) string
+}
+
+// Keycloak is the Admin REST API subset Orbit uses (implemented by keycloak.Admin).
+type Keycloak interface {
+	GetUser(ctx context.Context, id string) (*keycloak.User, error)
+	UpdateUser(ctx context.Context, u *keycloak.User) error
+	UserGroups(ctx context.Context, id string) ([]keycloak.Group, error)
+}
+
+type Deps struct {
+	Config   *config.Config
+	OIDC     OIDC
+	Sessions *auth.Manager
+	Sealer   *seal.Sealer
+	Keycloak Keycloak
+	Store    store.Store
+	Avatars  avatar.Storage
+	Logger   *slog.Logger
+}
+
+type Server struct {
+	cfg      *config.Config
+	oidc     OIDC
+	sessions *auth.Manager
+	sealer   *seal.Sealer
+	kc       Keycloak
+	store    store.Store
+	avatars  avatar.Storage
+	log      *slog.Logger
+
+	authLimiter   *limiter
+	uploadLimiter *limiter
+	writeLimiter  *limiter
+}
+
+func New(d Deps) http.Handler {
+	s := &Server{
+		cfg:      d.Config,
+		oidc:     d.OIDC,
+		sessions: d.Sessions,
+		sealer:   d.Sealer,
+		kc:       d.Keycloak,
+		store:    d.Store,
+		avatars:  d.Avatars,
+		log:      d.Logger,
+
+		authLimiter:   newLimiter(30, 10),
+		uploadLimiter: newLimiter(10, 3),
+		writeLimiter:  newLimiter(120, 30),
+	}
+	if s.log == nil {
+		s.log = slog.Default()
+	}
+	return s.routes()
+}
+
+func (s *Server) routes() http.Handler {
+	r := chi.NewRouter()
+	if s.cfg.TrustProxy {
+		r.Use(middleware.RealIP)
+	}
+	r.Use(middleware.RequestID, s.requestLogger, middleware.Recoverer, s.securityHeaders)
+
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) }) //nolint:errcheck
+
+	r.Route("/auth", func(r chi.Router) {
+		r.Use(s.rateLimit(s.authLimiter))
+		r.Get("/login", s.handleLogin)
+		r.Get("/action/{action}", s.handleAction)
+		r.Get("/callback", s.handleCallback)
+		r.With(s.requireSession, s.requireCSRF).Post("/logout", s.handleLogout)
+	})
+
+	r.Get("/go/{ref}", s.handleLaunch)
+
+	r.Route("/api", func(r chi.Router) {
+		r.Use(noStore)
+		r.Get("/config", s.handleConfig)
+		r.Get("/users/{sub}/avatar", s.handleGetAvatar)
+
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireSession, s.requireCSRF, s.limitWrites)
+			r.Get("/me", s.handleMe)
+			r.Get("/profile", s.handleGetProfile)
+			r.Patch("/profile", s.handleUpdateProfile)
+			r.With(s.rateLimit(s.uploadLimiter)).Put("/profile/avatar", s.handleUploadAvatar)
+			r.Delete("/profile/avatar", s.handleDeleteAvatar)
+			r.Get("/services", s.handleListServices)
+			r.Put("/services/{id}/favorite", s.handleSetFavorite)
+
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(s.requireAdmin)
+				r.Get("/services", s.handleAdminListServices)
+				r.Post("/services", s.handleAdminCreateService)
+				r.Put("/services/{id}", s.handleAdminUpdateService)
+				r.Delete("/services/{id}", s.handleAdminDeleteService)
+				r.Get("/audit", s.handleAdminAudit)
+			})
+		})
+
+		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+			writeError(w, http.StatusNotFound, "not_found", "Ресурс не найден")
+		})
+	})
+
+	if s.cfg.StaticDir != "" {
+		r.NotFound(spaHandler(s.cfg.StaticDir))
+	}
+	return r
+}
+
+// spaHandler serves the built frontend and falls back to index.html for
+// client-side routes.
+func spaHandler(dir string) http.HandlerFunc {
+	files := http.FileServer(http.Dir(dir))
+	return func(w http.ResponseWriter, r *http.Request) {
+		p := filepath.Join(dir, filepath.FromSlash(filepath.Clean("/"+r.URL.Path)))
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			files.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+	}
+}
+
+func (s *Server) requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		s.log.Info("http",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", ww.Status(),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"request_id", middleware.GetReqID(r.Context()),
+		)
+	})
+}
+
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+			"img-src 'self' data: blob: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if s.cfg.CookieSecure {
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// audit records a security-relevant event. Failures are logged, not returned:
+// the user action already happened.
+func (s *Server) audit(r *http.Request, actor, action, target string, details map[string]any) {
+	e := store.AuditEvent{
+		ActorSub:  actor,
+		Action:    action,
+		Target:    target,
+		IP:        clientIP(r),
+		UserAgent: truncate(r.UserAgent(), 256),
+		Details:   details,
+	}
+	if err := s.store.RecordAudit(context.WithoutCancel(r.Context()), e); err != nil {
+		s.log.Error("audit write failed", "action", action, "err", err)
+	}
+	s.log.Info("audit", "actor", actor, "action", action, "target", target)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
