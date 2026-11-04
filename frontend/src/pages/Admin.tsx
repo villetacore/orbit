@@ -1,10 +1,11 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LayoutGrid, Palette, Pencil, Plus, RefreshCw, ScrollText, Trash2, UserPlus } from 'lucide-react';
-import { useCallback, useState, type FormEvent } from 'react';
+import { Badge, Button, Card, Dialog, Drawer, EmptyState, IconButton, Input, NumberInput, PageHeader, Select, Table, Tabs, Textarea, type Tone } from '@villetacore/velessoft-ui';
+import { LayoutGrid, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
-import { api, errorMessage, type AdminService, type AuditEvent, type ServiceInput, type ServiceStatus } from '../api';
+import { api, type AdminService, type AuditEvent, type ServiceInput, type ServiceStatus } from '../api';
 import { ServiceIcon, StatusBadge, servicesQueryKey } from '../components/ServiceCard';
-import { Drawer, EmptyState, Modal, PageHeader, Skeleton } from '../components/ui';
+import { ErrorAlert, Loading } from '../components/ui';
 import { formatDateTime, formatRelative } from '../lib/format';
 import { BrandingSettings } from './BrandingSettings';
 import { Registrations, registrationsKey } from './Registrations';
@@ -31,9 +32,7 @@ const emptyInput: ServiceInput = {
 
 export function Admin() {
   const [params] = useSearchParams();
-  const [tab, setTab] = useState<'catalog' | 'registrations' | 'branding' | 'audit'>(
-    params.get('tab') === 'registrations' ? 'registrations' : 'catalog',
-  );
+  const [tab, setTab] = useState(params.get('tab') === 'registrations' ? 'registrations' : 'catalog');
   const pending = useQuery({
     queryKey: [...registrationsKey, 'pending'],
     queryFn: () => api.admin.registrations('pending'),
@@ -48,36 +47,28 @@ export function Admin() {
         description="Каталог сервисов, заявки на регистрацию, оформление портала и журнал важных действий."
         actions={
           tab === 'catalog' && (
-            <button className="btn btn-primary" onClick={() => setEditing('new')}>
+            <Button variant="primary" className="with-icon" onClick={() => setEditing('new')}>
               <Plus size={16} />
               Добавить сервис
-            </button>
+            </Button>
           )
         }
       />
-      <div className="segmented" role="tablist" style={{ alignSelf: 'flex-start' }}>
-        <button role="tab" aria-selected={tab === 'catalog'} onClick={() => setTab('catalog')}>
-          <LayoutGrid size={15} />
-          Каталог
-        </button>
-        <button role="tab" aria-selected={tab === 'registrations'} onClick={() => setTab('registrations')}>
-          <UserPlus size={15} />
-          Заявки
-          {pendingCount > 0 && <span className="count">{pendingCount}</span>}
-        </button>
-        <button role="tab" aria-selected={tab === 'branding'} onClick={() => setTab('branding')}>
-          <Palette size={15} />
-          Оформление
-        </button>
-        <button role="tab" aria-selected={tab === 'audit'} onClick={() => setTab('audit')}>
-          <ScrollText size={15} />
-          Журнал аудита
-        </button>
-      </div>
-      {tab === 'catalog' && <CatalogAdmin editing={editing} setEditing={setEditing} />}
-      {tab === 'registrations' && <Registrations />}
-      {tab === 'branding' && <BrandingSettings />}
-      {tab === 'audit' && <AuditLog />}
+      <Tabs
+        label="Разделы администрирования"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { value: 'catalog', label: 'Каталог', content: <CatalogAdmin editing={editing} setEditing={setEditing} /> },
+          {
+            value: 'registrations',
+            label: pendingCount > 0 ? `Заявки · ${pendingCount}` : 'Заявки',
+            content: <Registrations />,
+          },
+          { value: 'branding', label: 'Оформление', content: tab === 'branding' ? <BrandingSettings /> : null },
+          { value: 'audit', label: 'Журнал аудита', content: tab === 'audit' ? <AuditLog /> : null },
+        ]}
+      />
     </div>
   );
 }
@@ -91,121 +82,101 @@ function CatalogAdmin({
 }) {
   const queryClient = useQueryClient();
   const services = useQuery({ queryKey: adminServicesKey, queryFn: api.admin.services });
-
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: adminServicesKey });
     void queryClient.invalidateQueries({ queryKey: servicesQueryKey });
   };
-
   const [deleting, setDeleting] = useState<AdminService | null>(null);
-  const remove = useMutation({
-    mutationFn: (id: string) => api.admin.deleteService(id),
-    onSuccess: () => {
-      setDeleting(null);
-      invalidate();
-    },
-  });
-  const close = useCallback(() => setEditing(null), [setEditing]);
-  const closeDelete = useCallback(() => {
-    setDeleting(null);
-    remove.reset();
-  }, [remove]);
 
-  if (services.isPending) return <Skeleton height={320} />;
-  if (services.isError) return <p className="form-error">{errorMessage(services.error)}</p>;
+  if (services.isPending) return <Loading height={320} />;
+  if (services.isError) return <ErrorAlert error={services.error} />;
 
   return (
     <>
       {services.data.services.length === 0 ? (
         <EmptyState
-          icon={LayoutGrid}
+          icon={<LayoutGrid size={20} />}
           title="Каталог пуст"
-          text="Добавьте первый сервис — он появится у сотрудников с подходящими ролями."
-          action={
-            <button className="btn btn-primary" onClick={() => setEditing('new')}>
+          description="Добавьте первый сервис — он появится у сотрудников с подходящими ролями."
+          actions={
+            <Button variant="primary" onClick={() => setEditing('new')}>
               Добавить сервис
-            </button>
+            </Button>
           }
         />
       ) : (
-        <div className="card table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Сервис</th>
-                <th>Категория</th>
-                <th>Статус</th>
-                <th>Доступ</th>
-                <th>
-                  <span className="sr-only">Действия</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.data.services.map((s) => (
-                <tr key={s.id}>
-                  <td>
-                    <div className="cell-service">
-                      <ServiceIcon service={s} size={36} />
-                      <div>
-                        <strong>{s.name}</strong>
-                        <span className="mono" title={s.url}>
-                          {s.url}
-                        </span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>{s.category || <span className="muted">—</span>}</td>
-                  <td>
-                    <StatusBadge status={s.status} />
-                  </td>
-                  <td>
-                    {s.requiredRoles.length ? (
-                      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {s.requiredRoles.map((r) => (
-                          <span key={r} className="badge badge-accent">
-                            {r}
-                          </span>
-                        ))}
-                      </span>
-                    ) : (
-                      <span className="muted">Все сотрудники</span>
-                    )}
-                  </td>
-                  <td className="cell-actions">
-                    <button className="icon-btn" onClick={() => setEditing(s)} aria-label={`Изменить ${s.name}`} title="Изменить">
-                      <Pencil size={16} />
-                    </button>
-                    <button
-                      className="icon-btn danger"
-                      aria-label={`Удалить ${s.name}`}
-                      title="Удалить"
-                      onClick={() => setDeleting(s)}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          rows={services.data.services}
+          rowKey={(s) => s.id}
+          columns={[
+            {
+              key: 'name',
+              header: 'Сервис',
+              sortValue: (s) => s.name,
+              render: (s) => (
+                <span className="cell-service">
+                  <ServiceIcon service={s} size={32} />
+                  <span className="row-text">
+                    <strong>{s.name}</strong>
+                    <small className="mono" title={s.url}>
+                      {s.url}
+                    </small>
+                  </span>
+                </span>
+              ),
+            },
+            { key: 'category', header: 'Категория', sortValue: (s) => s.category, render: (s) => s.category || '—' },
+            { key: 'status', header: 'Статус', render: (s) => <StatusBadge status={s.status} /> },
+            {
+              key: 'roles',
+              header: 'Доступ',
+              render: (s) =>
+                s.requiredRoles.length ? (
+                  <span className="chips">
+                    {s.requiredRoles.map((r) => (
+                      <Badge key={r} tone="info">
+                        {r}
+                      </Badge>
+                    ))}
+                  </span>
+                ) : (
+                  'Все сотрудники'
+                ),
+            },
+            {
+              key: 'actions',
+              header: <span className="vs-visually-hidden">Действия</span>,
+              align: 'right',
+              render: (s) => (
+                <span className="row end">
+                  <IconButton size="sm" variant="ghost" label={`Изменить ${s.name}`} onClick={() => setEditing(s)}>
+                    <Pencil size={14} />
+                  </IconButton>
+                  <IconButton size="sm" variant="ghost" label={`Удалить ${s.name}`} onClick={() => setDeleting(s)}>
+                    <Trash2 size={14} />
+                  </IconButton>
+                </span>
+              ),
+            },
+          ]}
+        />
       )}
       {deleting && (
         <DeleteServiceDialog
           service={deleting}
-          pending={remove.isPending}
-          error={remove.error}
-          onCancel={closeDelete}
-          onConfirm={() => remove.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            invalidate();
+          }}
         />
       )}
       {editing && (
         <ServiceForm
           service={editing === 'new' ? null : editing}
-          onClose={close}
+          onClose={() => setEditing(null)}
           onSaved={() => {
-            close();
+            setEditing(null);
             invalidate();
           }}
         />
@@ -214,82 +185,40 @@ function CatalogAdmin({
   );
 }
 
-// Deleting is confirmed by typing the slug, as the design system requires
-// for destructive actions, and the dialog says what will be removed.
-function DeleteServiceDialog({
-  service,
-  pending,
-  error,
-  onCancel,
-  onConfirm,
-}: {
-  service: AdminService;
-  pending: boolean;
-  error: unknown;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
+// Deleting is confirmed by typing the slug, as the design system requires for
+// destructive actions, and the dialog says what will be removed.
+function DeleteServiceDialog({ service, onClose, onDeleted }: { service: AdminService; onClose: () => void; onDeleted: () => void }) {
   const [typed, setTyped] = useState('');
-  const matches = typed.trim() === service.slug;
+  const remove = useMutation({ mutationFn: () => api.admin.deleteService(service.id), onSuccess: onDeleted });
   return (
-    <Modal
+    <Dialog
+      open
       title={`Удалить «${service.name}»?`}
-      onClose={onCancel}
+      onClose={onClose}
       footer={
         <>
-          <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={pending}>
+          <Button variant="ghost" onClick={onClose} disabled={remove.isPending}>
             Отмена
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger-solid"
-            onClick={onConfirm}
-            disabled={!matches || pending}
-            aria-busy={pending}
-          >
-            <Trash2 size={16} />
-            {pending ? 'Удаление…' : 'Удалить сервис'}
-          </button>
+          </Button>
+          <Button variant="danger" onClick={() => remove.mutate()} disabled={typed.trim() !== service.slug} loading={remove.isPending}>
+            Удалить сервис
+          </Button>
         </>
       }
     >
-      <div className="card-body form">
+      <div className="stack">
         <p>
           Сервис пропадёт из каталога у всех сотрудников, вместе с отметками «Избранное». Ссылка <code>/go/{service.slug}</code>{' '}
           перестанет работать. Записи в журнале аудита сохранятся.
         </p>
-        <label className="field">
-          <span>
-            Введите <code>{service.slug}</code> для подтверждения
-          </span>
-          <input
-            className="mono"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-        {error != null && (
-          <p className="form-error" role="alert">
-            {errorMessage(error)}
-          </p>
-        )}
+        <Input label={`Введите ${service.slug} для подтверждения`} value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus autoComplete="off" spellCheck={false} />
+        <ErrorAlert error={remove.error} />
       </div>
-    </Modal>
+    </Dialog>
   );
 }
 
-function ServiceForm({
-  service,
-  onClose,
-  onSaved,
-}: {
-  service: AdminService | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+function ServiceForm({ service, onClose, onSaved }: { service: AdminService | null; onClose: () => void; onSaved: () => void }) {
   const [input, setInput] = useState<ServiceInput>(() => (service ? pickInput(service) : emptyInput));
   const [roles, setRoles] = useState(input.requiredRoles.join(', '));
 
@@ -312,85 +241,51 @@ function ServiceForm({
   }
 
   return (
-    <Drawer
-      title={service ? `Сервис «${service.name}»` : 'Новый сервис'}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+    <Drawer open title={service ? `Сервис «${service.name}»` : 'Новый сервис'} onClose={onClose} className="wide-drawer">
+      <form className="stack" onSubmit={onSubmit}>
+        <div className="cell-service">
+          <ServiceIcon service={{ name: input.name || '?', slug: input.slug || 'new', iconUrl: input.iconUrl }} size={48} />
+          <p className="hint">Предпросмотр иконки. Без URL иконки показываются инициалы.</p>
+        </div>
+        <Input label="Название" value={input.name} onChange={(e) => set('name', e.target.value)} required maxLength={100} />
+        <Input
+          label="Slug"
+          hint={`Адрес перехода: /go/${input.slug || 'slug'}`}
+          value={input.slug}
+          onChange={(e) => set('slug', e.target.value)}
+          required
+          pattern="[a-z0-9][a-z0-9\-]{1,49}"
+          title="2–50 символов: строчные латинские буквы, цифры, дефис"
+        />
+        <Input label="URL сервиса" type="url" value={input.url} onChange={(e) => set('url', e.target.value)} required placeholder="https://" />
+        <Textarea label="Описание" value={input.description} onChange={(e) => set('description', e.target.value)} maxLength={500} rows={3} />
+        <div className="form-grid">
+          <Input label="Категория" value={input.category} onChange={(e) => set('category', e.target.value)} maxLength={50} />
+          <NumberInput label="Порядок" value={input.sortOrder} onChange={(e) => set('sortOrder', Number(e.target.value))} />
+        </div>
+        <Input label="Иконка (URL)" type="url" value={input.iconUrl} onChange={(e) => set('iconUrl', e.target.value)} placeholder="https://" />
+        <Select label="Статус" value={input.status} onChange={(e) => set('status', e.target.value as ServiceStatus)}>
+          {Object.entries(statusLabels).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="Роли с доступом"
+          hint="Роли realm в Keycloak через запятую; достаточно любой из них. Пусто — доступен всем."
+          value={roles}
+          onChange={(e) => setRoles(e.target.value)}
+        />
+        <ErrorAlert error={save.error} />
+        <div className="row">
+          <Button type="submit" variant="primary" loading={save.isPending}>
+            {service ? 'Сохранить' : 'Создать'}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
             Отмена
-          </button>
-          <button type="submit" form="service-form" className="btn btn-primary" disabled={save.isPending}>
-            {save.isPending ? 'Сохранение…' : service ? 'Сохранить' : 'Создать'}
-          </button>
-        </>
-      }
-    >
-      <form id="service-form" className="form" onSubmit={onSubmit}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <ServiceIcon service={{ name: input.name || '?', slug: input.slug || 'new', iconUrl: input.iconUrl }} size={52} />
-          <div className="muted small">Предпросмотр иконки. Без URL иконки показываются инициалы.</div>
+          </Button>
         </div>
-        <label className="field">
-          <span>Название</span>
-          <input value={input.name} onChange={(e) => set('name', e.target.value)} required maxLength={100} />
-        </label>
-        <label className="field">
-          <span>Slug</span>
-          <input
-            className="mono"
-            value={input.slug}
-            onChange={(e) => set('slug', e.target.value)}
-            required
-            pattern="[a-z0-9][a-z0-9\-]{1,49}"
-            title="2–50 символов: строчные латинские буквы, цифры, дефис"
-          />
-          <span className="field-hint">
-            Адрес перехода: <code>/go/{input.slug || 'slug'}</code>
-          </span>
-        </label>
-        <label className="field">
-          <span>URL сервиса</span>
-          <input type="url" value={input.url} onChange={(e) => set('url', e.target.value)} required placeholder="https://" />
-        </label>
-        <label className="field">
-          <span>Описание</span>
-          <textarea value={input.description} onChange={(e) => set('description', e.target.value)} maxLength={500} rows={3} />
-        </label>
-        <div className="form-row">
-          <label className="field">
-            <span>Категория</span>
-            <input value={input.category} onChange={(e) => set('category', e.target.value)} maxLength={50} />
-          </label>
-          <label className="field">
-            <span>Порядок</span>
-            <input type="number" value={input.sortOrder} onChange={(e) => set('sortOrder', Number(e.target.value))} />
-          </label>
-        </div>
-        <label className="field">
-          <span>Иконка (URL)</span>
-          <input type="url" value={input.iconUrl} onChange={(e) => set('iconUrl', e.target.value)} placeholder="https://" />
-        </label>
-        <label className="field">
-          <span>Статус</span>
-          <select value={input.status} onChange={(e) => set('status', e.target.value as ServiceStatus)}>
-            {Object.entries(statusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Роли с доступом</span>
-          <input value={roles} onChange={(e) => setRoles(e.target.value)} placeholder="Пусто — доступен всем сотрудникам" />
-          <span className="field-hint">Роли realm в Keycloak через запятую; достаточно любой из них.</span>
-        </label>
-        {save.isError && (
-          <p className="form-error" role="alert">
-            {errorMessage(save.error)}
-          </p>
-        )}
       </form>
     </Drawer>
   );
@@ -404,10 +299,15 @@ function pickInput(s: AdminService): ServiceInput {
 const actionLabels: Record<string, string> = {
   'auth.login': 'Вход',
   'auth.logout': 'Выход',
+  'auth.password.first_change': 'Временный пароль заменён',
   'profile.update': 'Профиль изменён',
   'avatar.upload': 'Фото загружено',
   'avatar.delete': 'Фото удалено',
   'service.launch': 'Переход в сервис',
+  'account.password.change': 'Пароль изменён',
+  'account.email.change': 'Email изменён',
+  'account.totp.add': 'OTP подключён',
+  'account.credential.delete': 'Способ входа удалён',
   'admin.service.create': 'Сервис создан',
   'admin.service.update': 'Сервис изменён',
   'admin.service.delete': 'Сервис удалён',
@@ -416,13 +316,16 @@ const actionLabels: Record<string, string> = {
   'admin.branding.logo': 'Логотип загружен',
   'admin.branding.favicon.delete': 'Фавикон удалён',
   'admin.branding.logo.delete': 'Логотип удалён',
+  'admin.keycloak.post': 'Keycloak: создание',
+  'admin.keycloak.put': 'Keycloak: изменение',
+  'admin.keycloak.delete': 'Keycloak: удаление',
 };
 
-function actionBadge(action: string): string {
-  if (action.startsWith('admin.')) return 'badge-warn';
-  if (action.startsWith('auth.')) return 'badge-info';
-  if (action.startsWith('service.')) return 'badge-ok';
-  return 'badge-accent';
+function actionTone(action: string): Tone {
+  if (action.startsWith('admin.')) return 'warning';
+  if (action.startsWith('auth.')) return 'info';
+  if (action.startsWith('service.')) return 'success';
+  return 'neutral';
 }
 
 function formatDetails(e: AuditEvent): string {
@@ -441,64 +344,42 @@ function AuditLog() {
   });
   const events = audit.data?.pages.flatMap((p) => p.events) ?? [];
 
-  if (audit.isPending) return <Skeleton height={360} />;
-  if (audit.isError) return <p className="form-error">{errorMessage(audit.error)}</p>;
+  if (audit.isPending) return <Loading height={360} />;
+  if (audit.isError) return <ErrorAlert error={audit.error} />;
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <div>
-          <h2>Последние события</h2>
-          <p>Входы, изменения профиля, переходы в сервисы и действия администраторов.</p>
-        </div>
-        <button className="btn btn-sm" onClick={() => audit.refetch()} disabled={audit.isFetching}>
+    <Card
+      flat
+      title="Последние события"
+      description="Входы, изменения профиля, переходы в сервисы и действия администраторов."
+      actions={
+        <Button size="sm" className="with-icon" onClick={() => audit.refetch()} disabled={audit.isFetching}>
           <RefreshCw size={14} />
           Обновить
-        </button>
-      </div>
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Когда</th>
-              <th>Событие</th>
-              <th>Объект</th>
-              <th>Пользователь</th>
-              <th>IP</th>
-              <th>Детали</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((e) => (
-              <tr key={e.id}>
-                <td className="nowrap" title={formatDateTime(e.occurredAt)}>
-                  {formatRelative(e.occurredAt)}
-                </td>
-                <td>
-                  <span className={`badge ${actionBadge(e.action)}`} title={e.action}>
-                    {actionLabels[e.action] ?? e.action}
-                  </span>
-                </td>
-                <td>{e.target === e.actorSub ? <span className="muted">свой аккаунт</span> : e.target}</td>
-                <td>
-                  <span className="mono" title={e.actorSub}>
-                    {e.actorSub.slice(0, 8)}
-                  </span>
-                </td>
-                <td className="mono">{e.ip}</td>
-                <td className="small muted">{formatDetails(e)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        </Button>
+      }
+    >
+      <Table
+        compact
+        rows={events}
+        rowKey={(e) => e.id}
+        emptyText="Событий пока нет"
+        columns={[
+          { key: 'when', header: 'Когда', render: (e) => <span title={formatDateTime(e.occurredAt)}>{formatRelative(e.occurredAt)}</span> },
+          { key: 'action', header: 'Событие', render: (e) => <Badge tone={actionTone(e.action)} title={e.action}>{actionLabels[e.action] ?? e.action}</Badge> },
+          { key: 'target', header: 'Объект', render: (e) => (e.target === e.actorSub ? 'свой аккаунт' : <span className="mono small">{e.target}</span>) },
+          { key: 'actor', header: 'Пользователь', render: (e) => <span className="mono" title={e.actorSub}>{e.actorSub.slice(0, 8)}</span> },
+          { key: 'ip', header: 'IP', render: (e) => <span className="mono">{e.ip}</span> },
+          { key: 'details', header: 'Детали', render: (e) => <small>{formatDetails(e)}</small> },
+        ]}
+      />
       {audit.hasNextPage && (
-        <div className="table-foot">
-          <button className="btn btn-sm" onClick={() => audit.fetchNextPage()} disabled={audit.isFetchingNextPage}>
+        <div className="row center">
+          <Button size="sm" onClick={() => audit.fetchNextPage()} loading={audit.isFetchingNextPage}>
             Показать ещё
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

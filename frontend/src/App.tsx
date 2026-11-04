@@ -3,6 +3,7 @@ import { AuthGate, useMe } from './auth';
 import { Layout } from './components/Layout';
 import { Admin } from './pages/Admin';
 import { Dashboard } from './pages/Dashboard';
+import { KeycloakAdmin } from './pages/keycloak/KeycloakAdmin';
 import { People } from './pages/People';
 import { ProfilePage } from './pages/Profile';
 import { Security } from './pages/Security';
@@ -11,6 +12,11 @@ import { Services } from './pages/Services';
 function AdminRoute() {
   const me = useMe();
   return me.isAdmin ? <Admin /> : <Navigate to="/" replace />;
+}
+
+function KeycloakRoute() {
+  const me = useMe();
+  return me.isAdmin ? <KeycloakAdmin /> : <Navigate to="/" replace />;
 }
 
 export function App() {
@@ -24,6 +30,7 @@ export function App() {
           <Route path="people" element={<People />} />
           <Route path="security" element={<Security />} />
           <Route path="admin" element={<AdminRoute />} />
+          <Route path="keycloak/:section?" element={<KeycloakRoute />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

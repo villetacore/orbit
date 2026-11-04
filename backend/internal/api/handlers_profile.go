@@ -200,6 +200,20 @@ func (s *Server) keycloakError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "Учётная запись не найдена в Keycloak")
 		return
 	}
+	var ke *keycloak.Error
+	if errors.As(err, &ke) {
+		switch {
+		case ke.Status == http.StatusBadRequest:
+			// A rule of the realm was broken, e.g. the password policy; Keycloak's
+			// message is the explanation the user needs.
+			writeError(w, http.StatusUnprocessableEntity, "validation", ke.Message)
+			return
+		case ke.Status == http.StatusForbidden:
+			s.log.Error("keycloak: service account lacks permissions", "err", err)
+			writeError(w, http.StatusBadGateway, "keycloak_forbidden", "Сервисному аккаунту Orbit не хватает прав в Keycloak: назначьте ему роль realm-admin")
+			return
+		}
+	}
 	s.log.Error("keycloak", "err", err)
 	writeError(w, http.StatusBadGateway, "keycloak", "Ошибка обращения к Keycloak")
 }

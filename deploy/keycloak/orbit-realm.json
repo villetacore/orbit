@@ -12,6 +12,10 @@
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 43200,
   "bruteForceProtected": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 2592000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
   "internationalizationEnabled": true,
   "supportedLocales": [
     "ru",
@@ -54,7 +58,7 @@
       "secret": "orbit-web-dev-secret",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": true,
       "rootUrl": "http://localhost:5173",
@@ -101,7 +105,7 @@
     {
       "clientId": "orbit-admin-api",
       "name": "Orbit Admin API",
-      "description": "Service account Orbit для Admin REST API (view-users, manage-users)",
+      "description": "Service account Orbit для Admin REST API (все настройки realm из портала)",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -120,8 +124,7 @@
       "serviceAccountClientId": "orbit-admin-api",
       "clientRoles": {
         "realm-management": [
-          "view-users",
-          "manage-users"
+          "realm-admin"
         ]
       }
     },

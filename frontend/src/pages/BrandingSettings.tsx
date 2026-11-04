@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, ImageUp, LayoutDashboard, LayoutGrid, RotateCcw, Trash2 } from 'lucide-react';
+import { Alert, Button, Card, IconButton, Input, Textarea, useToast } from '@villetacore/velessoft-ui';
+import { ImageUp, RotateCcw, Trash2 } from 'lucide-react';
 import { useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from 'react';
-import { api, errorMessage, type Branding, type BrandingAsset, type BrandingInput } from '../api';
+import { api, type Branding, type BrandingAsset, type BrandingInput } from '../api';
 import { brandingQueryKey, defaultBranding } from '../branding';
-import { BrandMark, Skeleton } from '../components/ui';
+import { BrandMark, ErrorAlert, Loading } from '../components/ui';
 import { contrastRatio, isHexColor, readableOn } from '../lib/color';
 
 const adminBrandingKey = ['admin', 'branding'] as const;
@@ -15,22 +16,15 @@ function toInput(b: Branding): BrandingInput {
 
 export function BrandingSettings() {
   const branding = useQuery({ queryKey: adminBrandingKey, queryFn: api.admin.branding });
-  // Lives here, not in BrandingForm, because the form remounts after a save.
-  const [done, setDone] = useState(false);
-  if (branding.isPending) return <Skeleton height={520} />;
-  if (branding.isError) return <p className="form-error">{errorMessage(branding.error)}</p>;
+  if (branding.isPending) return <Loading height={520} />;
+  if (branding.isError) return <ErrorAlert error={branding.error} />;
   // Remount when the saved version changes so the form starts from it.
-  return <BrandingForm key={JSON.stringify(toInput(branding.data))} saved={branding.data} done={done} setDone={setDone} />;
+  return <BrandingForm key={JSON.stringify(toInput(branding.data))} saved={branding.data} />;
 }
 
-interface BrandingFormProps {
-  saved: Branding;
-  done: boolean;
-  setDone: (done: boolean) => void;
-}
-
-function BrandingForm({ saved, done, setDone }: BrandingFormProps) {
+function BrandingForm({ saved }: { saved: Branding }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [input, setInput] = useState<BrandingInput>(() => toInput(saved));
 
   const onSaved = (b: Branding) => {
@@ -42,14 +36,13 @@ function BrandingForm({ saved, done, setDone }: BrandingFormProps) {
     mutationFn: api.admin.updateBranding,
     onSuccess: (b) => {
       onSaved(b);
-      setDone(true);
+      toast({ tone: 'success', title: 'Применено для всех пользователей' });
     },
   });
 
   const dirty = JSON.stringify(input) !== JSON.stringify(toInput(saved));
 
   function set<K extends keyof BrandingInput>(key: K, value: BrandingInput[K]) {
-    setDone(false);
     setInput((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -62,51 +55,37 @@ function BrandingForm({ saved, done, setDone }: BrandingFormProps) {
 
   return (
     <div className="settings-grid">
-      <form className="page" style={{ gap: 20 }} onSubmit={onSubmit}>
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Название и тексты</h2>
-              <p>Показываются в меню, заголовке вкладки и на странице входа.</p>
-            </div>
+      <form className="stack" onSubmit={onSubmit}>
+        <Card flat title="Название и тексты" description="Показываются в меню, заголовке вкладки и на странице входа.">
+          <div className="stack">
+            <Input label="Название портала" value={input.appName} onChange={(e) => set('appName', e.target.value)} required maxLength={40} />
+            <Input
+              label="Заголовок страницы входа"
+              value={input.landingTitle}
+              onChange={(e) => set('landingTitle', e.target.value)}
+              maxLength={120}
+              placeholder="Корпоративный аккаунт. Всё в одном месте."
+            />
+            <Textarea
+              label="Подзаголовок"
+              hint="Пустые поля — текст по умолчанию."
+              value={input.landingSubtitle}
+              onChange={(e) => set('landingSubtitle', e.target.value)}
+              maxLength={300}
+              rows={2}
+            />
           </div>
-          <div className="card-body form">
-            <label className="field">
-              <span>Название портала</span>
-              <input value={input.appName} onChange={(e) => set('appName', e.target.value)} required maxLength={40} />
-            </label>
-            <label className="field">
-              <span>Заголовок страницы входа</span>
-              <input
-                value={input.landingTitle}
-                onChange={(e) => set('landingTitle', e.target.value)}
-                maxLength={120}
-                placeholder="Корпоративный аккаунт. Всё в одном месте."
-              />
-            </label>
-            <label className="field">
-              <span>Подзаголовок</span>
-              <textarea
-                value={input.landingSubtitle}
-                onChange={(e) => set('landingSubtitle', e.target.value)}
-                maxLength={300}
-                rows={2}
-                placeholder="Профиль, доступ к сервисам компании и настройки безопасности…"
-              />
-              <span className="field-hint">Пустые поля — текст по умолчанию.</span>
-            </label>
-          </div>
-        </section>
+        </Card>
 
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Цвета</h2>
-              <p>Основной — ссылки, активные элементы, бейджи. Акцент — главные кнопки.</p>
-            </div>
-            <button
-              type="button"
-              className="btn btn-sm btn-ghost"
+        <Card
+          flat
+          title="Цвета"
+          description="Основной — ссылки, выделение и фокус. Акцент — главные кнопки."
+          actions={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="with-icon"
               onClick={() => {
                 set('primaryColor', defaultBranding.primaryColor);
                 set('accentColor', defaultBranding.accentColor);
@@ -114,140 +93,72 @@ function BrandingForm({ saved, done, setDone }: BrandingFormProps) {
             >
               <RotateCcw size={14} />
               Палитра velessoft
-            </button>
+            </Button>
+          }
+        >
+          <div className="form-grid">
+            <ColorField label="Основной цвет" value={input.primaryColor} onChange={(v) => set('primaryColor', v)} />
+            <ColorField label="Акцентный цвет" value={input.accentColor} onChange={(v) => set('accentColor', v)} contrast />
           </div>
-          <div className="card-body form">
-            <div className="form-row">
-              <ColorField label="Основной цвет" value={input.primaryColor} onChange={(v) => set('primaryColor', v)} />
-              <ColorField label="Акцентный цвет" value={input.accentColor} onChange={(v) => set('accentColor', v)} contrast />
-            </div>
-          </div>
-        </section>
+        </Card>
 
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Поддержка</h2>
-              <p>Ссылка «Поддержка» в меню и «Нужна помощь со входом» на странице входа.</p>
-            </div>
+        <Card flat title="Поддержка" description="Ссылка «Поддержка» в меню и «Помощь со входом» на странице входа.">
+          <div className="form-grid">
+            <Input label="Email" type="email" value={input.supportEmail} onChange={(e) => set('supportEmail', e.target.value)} placeholder="help@company.ru" />
+            <Input label="Ссылка (приоритетнее email)" type="url" value={input.supportUrl} onChange={(e) => set('supportUrl', e.target.value)} placeholder="https://" />
           </div>
-          <div className="card-body form-row">
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                value={input.supportEmail}
-                onChange={(e) => set('supportEmail', e.target.value)}
-                placeholder="help@company.ru"
-              />
-            </label>
-            <label className="field">
-              <span>Ссылка (приоритетнее email)</span>
-              <input
-                type="url"
-                value={input.supportUrl}
-                onChange={(e) => set('supportUrl', e.target.value)}
-                placeholder="https://"
-              />
-            </label>
-          </div>
-        </section>
+        </Card>
 
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Файлы</h2>
-              <p>PNG, JPEG или WebP. Изображения пересохраняются в PNG; SVG не принимается.</p>
-            </div>
-          </div>
-          <div className="card-body asset-list">
-            <AssetField
-              asset="favicon"
-              title="Фавикон"
-              hint="Квадрат, от 16×16 px. Будет приведён к 256×256."
-              url={saved.faviconUrl}
-              onChange={onSaved}
-            />
-            <AssetField
-              asset="logo"
-              title="Логотип"
-              hint="Горизонтальный, светлый — меню тёмное. До 480×160 px."
-              url={saved.logoUrl}
-              onChange={onSaved}
-              wide
-            />
-          </div>
-        </section>
+        <Card flat title="Файлы" description="PNG, JPEG или WebP. Изображения пересохраняются в PNG; SVG не принимается.">
+          <ul className="rows">
+            <AssetField asset="favicon" title="Фавикон" hint="Квадрат, от 16×16 px. Будет приведён к 256×256." url={saved.faviconUrl} onChange={onSaved} />
+            <AssetField asset="logo" title="Логотип" hint="Горизонтальный, до 480×160 px." url={saved.logoUrl} onChange={onSaved} wide />
+          </ul>
+        </Card>
 
-        <div className="form-actions sticky-actions">
-          <button className="btn btn-primary" type="submit" disabled={!dirty || !colorsValid || save.isPending}>
-            {save.isPending ? 'Сохранение…' : 'Сохранить оформление'}
-          </button>
+        <ErrorAlert error={save.error} />
+        <div className="row">
+          <Button type="submit" variant="primary" disabled={!dirty || !colorsValid} loading={save.isPending}>
+            Сохранить оформление
+          </Button>
           {dirty && (
-            <button type="button" className="btn btn-ghost" onClick={() => setInput(toInput(saved))}>
+            <Button variant="ghost" onClick={() => setInput(toInput(saved))}>
               Отменить
-            </button>
-          )}
-          {done && !dirty && (
-            <span className="saved" role="status">
-              <Check size={16} />
-              Применено для всех пользователей
-            </span>
-          )}
-          {save.isError && (
-            <p className="form-error" role="alert">
-              {errorMessage(save.error)}
-            </p>
+            </Button>
           )}
         </div>
       </form>
 
       <aside className="settings-preview">
-        <h3 className="eyebrow">Предпросмотр</h3>
-        <Preview input={input} logoUrl={saved.logoUrl} faviconUrl={saved.faviconUrl} />
+        <Preview input={input} logoUrl={saved.logoUrl} />
       </aside>
     </div>
   );
 }
 
-function ColorField({
-  label,
-  value,
-  onChange,
-  contrast,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  contrast?: boolean;
-}) {
+function ColorField({ label, value, onChange, contrast }: { label: string; value: string; onChange: (v: string) => void; contrast?: boolean }) {
   const valid = isHexColor(value);
   const ratio = valid && contrast ? contrastRatio(value, readableOn(value)) : null;
   return (
-    <div className="field">
-      <span>{label}</span>
-      <div className="color-input">
-        <input
-          type="color"
-          value={valid ? value.toLowerCase() : '#000000'}
-          onChange={(e) => onChange(e.target.value.toUpperCase())}
-          aria-label={`${label}: палитра`}
-        />
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value.trim())}
-          maxLength={7}
-          pattern="#[0-9A-Fa-f]{6}"
-          aria-label={`${label}: HEX`}
-          className="mono"
-        />
-      </div>
-      {!valid && <span className="form-error small">Формат #RRGGBB</span>}
+    <div className="stack">
+      <Input
+        label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value.trim())}
+        maxLength={7}
+        error={valid ? undefined : 'Формат #RRGGBB'}
+        startAddon={
+          <input
+            type="color"
+            className="color-swatch"
+            value={valid ? value.toLowerCase() : '#000000'}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            aria-label={`${label}: палитра`}
+          />
+        }
+      />
       {ratio !== null && ratio < 4.5 && (
-        <span className="field-hint" style={{ color: 'var(--warn)', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <AlertTriangle size={13} />
-          Контраст текста на кнопке {ratio.toFixed(1)}:1 — меньше рекомендуемых 4.5:1
-        </span>
+        <Alert tone="warning">Контраст текста на кнопке {ratio.toFixed(1)}:1 — меньше рекомендуемых 4.5:1</Alert>
       )}
     </div>
   );
@@ -269,15 +180,8 @@ function AssetField({
   wide?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const upload = useMutation({
-    mutationFn: (file: File) => api.admin.uploadBrandingAsset(asset, file),
-    onSuccess: onChange,
-  });
-  const remove = useMutation({
-    mutationFn: () => api.admin.deleteBrandingAsset(asset),
-    onSuccess: onChange,
-  });
-  const error = upload.error ?? remove.error;
+  const upload = useMutation({ mutationFn: (file: File) => api.admin.uploadBrandingAsset(asset, file), onSuccess: onChange });
+  const remove = useMutation({ mutationFn: () => api.admin.deleteBrandingAsset(asset), onSuccess: onChange });
 
   function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -286,97 +190,58 @@ function AssetField({
   }
 
   return (
-    <div className="asset-row">
-      <div className={`asset-preview${wide ? ' wide' : ''}`}>
-        {url ? <img src={url} alt="" /> : wide ? <span className="muted small">Нет логотипа</span> : <BrandMark size={22} />}
-      </div>
-      <div className="asset-text">
+    <li>
+      <span className={`asset-preview${wide ? ' wide' : ''}`}>
+        {url ? <img src={url} alt="" /> : wide ? <small>Нет логотипа</small> : <BrandMark size={20} />}
+      </span>
+      <span className="row-text">
         <strong>{title}</strong>
-        <span className="field-hint">{hint}</span>
-        {error && <span className="form-error small">{errorMessage(error)}</span>}
-      </div>
-      <div className="asset-actions">
-        <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onFile} />
-        <button type="button" className="btn btn-sm" onClick={() => inputRef.current?.click()} disabled={upload.isPending}>
-          <ImageUp size={14} />
-          {upload.isPending ? 'Загрузка…' : url ? 'Заменить' : 'Загрузить'}
-        </button>
-        {url && (
-          <button
-            type="button"
-            className="icon-btn danger"
-            onClick={() => remove.mutate()}
-            disabled={remove.isPending}
-            aria-label={`Удалить: ${title}`}
-            title="Удалить"
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
-      </div>
-    </div>
+        <small>{hint}</small>
+        <ErrorAlert error={upload.error ?? remove.error} />
+      </span>
+      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onFile} />
+      <Button size="sm" className="with-icon" onClick={() => inputRef.current?.click()} loading={upload.isPending}>
+        <ImageUp size={14} />
+        {url ? 'Заменить' : 'Загрузить'}
+      </Button>
+      {url && (
+        <IconButton size="sm" variant="ghost" label={`Удалить: ${title}`} onClick={() => remove.mutate()} disabled={remove.isPending}>
+          <Trash2 size={14} />
+        </IconButton>
+      )}
+    </li>
   );
 }
 
-// Preview renders a miniature of the portal with the unsaved colors. It uses
-// the brand variables directly because derived theme variables are resolved
-// at :root and would not pick up a scoped override.
-function Preview({ input, logoUrl, faviconUrl }: { input: BrandingInput; logoUrl: string; faviconUrl: string }) {
+// Preview shows the unsaved colors on real components by overriding the design
+// tokens for this subtree only.
+function Preview({ input, logoUrl }: { input: BrandingInput; logoUrl: string }) {
   const primary = isHexColor(input.primaryColor) ? input.primaryColor : defaultBranding.primaryColor;
   const accent = isHexColor(input.accentColor) ? input.accentColor : defaultBranding.accentColor;
   const style = {
-    '--p': primary,
-    '--a': accent,
-    '--on-a': readableOn(accent),
+    '--vs-accent': primary,
+    '--vs-link': primary,
+    '--vs-primary': accent,
+    '--vs-on-primary': readableOn(accent),
   } as CSSProperties;
 
   return (
-    <div className="preview" style={style}>
-      <div className="preview-tab">
-        {faviconUrl ? <img src={faviconUrl} alt="" width={14} height={14} /> : <img src="/favicon.svg" alt="" width={14} height={14} />}
-        <span>{input.appName || 'Orbit'}</span>
+    <Card flat title="Предпросмотр" style={style}>
+      <div className="stack">
+        <div className="brand">{logoUrl ? <img className="brand-logo" src={logoUrl} alt="" /> : <><BrandMark />{input.appName || 'Orbit'}</>}</div>
+        <strong>{input.landingTitle || 'Один вход. Все сервисы /_'}</strong>
+        <a className="vs-link" href="#preview" onClick={(e) => e.preventDefault()}>
+          Ссылка в тексте
+        </a>
+        <ul className="vs-nav-list">
+          <li>
+            <a href="#preview" aria-current="page" onClick={(e) => e.preventDefault()}>
+              Активный пункт
+            </a>
+          </li>
+        </ul>
+        <Button variant="primary">Главная кнопка</Button>
       </div>
-      <div className="preview-app">
-        <div className="preview-side">
-          <div className="preview-brand">
-            {logoUrl ? (
-              <img src={logoUrl} alt="" />
-            ) : (
-              <>
-                <span className="preview-mark" />
-                {input.appName || 'Orbit'}
-              </>
-            )}
-          </div>
-          <div className="preview-nav active">
-            <LayoutDashboard size={12} />
-            Главная
-          </div>
-          <div className="preview-nav">
-            <LayoutGrid size={12} />
-            Сервисы
-          </div>
-        </div>
-        <div className="preview-main">
-          <div className="preview-cover" />
-          <div className="preview-title">Добрый день, Алиса</div>
-          <div className="preview-badges">
-            <span className="preview-badge">orbit-admin</span>
-            <a className="preview-link">Каталог →</a>
-          </div>
-          <span className="preview-btn">Все сервисы</span>
-        </div>
-      </div>
-      <div className="preview-landing">
-        <div className="preview-landing-title">
-          {input.landingTitle || (
-            <>
-              Корпоративный аккаунт. <em>Всё в одном месте.</em>
-            </>
-          )}
-        </div>
-        <span className="preview-btn">Войти</span>
-      </div>
-    </div>
+    </Card>
   );
 }

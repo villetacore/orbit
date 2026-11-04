@@ -1,14 +1,18 @@
-// Package auth implements the OIDC Authorization Code + PKCE flow against
-// Keycloak and server-side sessions. Tokens never leave the backend.
+// Package auth implements sign-in against Keycloak (Orbit's own form via the
+// password grant, and Authorization Code + PKCE for browser-only methods) and
+// server-side sessions. Tokens never leave the backend.
 package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -45,11 +49,129 @@ type Tokens struct {
 // in Keycloak), as opposed to a transient failure.
 var ErrRefreshRejected = errors.New("auth: refresh token rejected")
 
+// Password grant outcomes. Keycloak answers a wrong password, a missing or
+// wrong one-time code, an unknown user and a locked account identically on
+// purpose, so ErrInvalidCredentials covers all of them.
+var (
+	ErrInvalidCredentials = errors.New("auth: invalid credentials")
+	ErrAccountDisabled    = errors.New("auth: account disabled")
+	// ErrAccountSetup means the credentials are right but the account has
+	// pending required actions, so Keycloak issues no tokens yet.
+	ErrAccountSetup = errors.New("auth: account setup required")
+	// ErrPasswordGrantDisabled means the client has "Direct access grants" off.
+	ErrPasswordGrantDisabled = errors.New("auth: password grant disabled for client")
+)
+
+// PasswordLogin is what a person typed into Orbit's sign-in form.
+type PasswordLogin struct {
+	Username string
+	Password string
+	OTP      string
+	// ClientIP is forwarded so Keycloak's sessions and events show the user's
+	// address when it is configured to trust X-Forwarded-For.
+	ClientIP string
+}
+
 type Provider struct {
 	oauth      oauth2.Config
 	verifier   *oidc.IDTokenVerifier
 	endSession string
 	client     *http.Client
+}
+
+// postForm sends an authenticated form request to one of the IdP's endpoints.
+func (p *Provider) postForm(ctx context.Context, endpoint string, form url.Values, clientIP string) (*http.Response, error) {
+	form.Set("client_id", p.oauth.ClientID)
+	form.Set("client_secret", p.oauth.ClientSecret)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	if clientIP != "" {
+		req.Header.Set("X-Forwarded-For", clientIP)
+	}
+	return p.client.Do(req)
+}
+
+// Login signs a user in with the OAuth2 password grant, without sending the
+// browser to Keycloak. Keycloak still runs its "direct grant" flow: password
+// check, one-time code, brute-force detection and account state.
+func (p *Provider) Login(ctx context.Context, in PasswordLogin) (Claims, Tokens, error) {
+	form := url.Values{
+		"grant_type": {"password"},
+		"username":   {in.Username},
+		"password":   {in.Password},
+		"scope":      {strings.Join(p.oauth.Scopes, " ")},
+	}
+	if in.OTP != "" {
+		form.Set("totp", in.OTP)
+	}
+	resp, err := p.postForm(ctx, p.oauth.Endpoint.TokenURL, form, in.ClientIP)
+	if err != nil {
+		return Claims{}, Tokens{}, fmt.Errorf("password grant: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return Claims{}, Tokens{}, fmt.Errorf("password grant: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error       string `json:"error"`
+			Description string `json:"error_description"`
+		}
+		_ = json.Unmarshal(body, &e)
+		return Claims{}, Tokens{}, passwordGrantError(resp.StatusCode, e.Error, e.Description)
+	}
+	var t struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &t); err != nil {
+		return Claims{}, Tokens{}, fmt.Errorf("password grant response: %w", err)
+	}
+	tok := (&oauth2.Token{
+		AccessToken:  t.AccessToken,
+		RefreshToken: t.RefreshToken,
+		Expiry:       time.Now().Add(time.Duration(t.ExpiresIn) * time.Second),
+	}).WithExtra(map[string]any{"id_token": t.IDToken})
+	return p.verify(oidc.ClientContext(ctx, p.client), tok)
+}
+
+func passwordGrantError(status int, code, description string) error {
+	switch {
+	case code == "invalid_grant" && description == "Account disabled":
+		return ErrAccountDisabled
+	case code == "invalid_grant" && description == "Account is not fully set up":
+		return ErrAccountSetup
+	case code == "invalid_grant":
+		return ErrInvalidCredentials
+	case code == "unauthorized_client":
+		return ErrPasswordGrantDisabled
+	}
+	return fmt.Errorf("password grant: status %d: %s: %s", status, code, description)
+}
+
+// EndSession ends the Keycloak session behind a refresh token from the
+// backend, so signing out needs no redirect through Keycloak.
+func (p *Provider) EndSession(ctx context.Context, refreshToken string) error {
+	if p.endSession == "" {
+		return errors.New("end session: IdP has no end_session_endpoint")
+	}
+	resp, err := p.postForm(ctx, p.endSession, url.Values{"refresh_token": {refreshToken}}, "")
+	if err != nil {
+		return fmt.Errorf("end session: %w", err)
+	}
+	defer resp.Body.Close()
+	// A session that is already gone is what the caller wanted.
+	if resp.StatusCode >= 300 && resp.StatusCode != http.StatusBadRequest {
+		return fmt.Errorf("end session: status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func NewProvider(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, client *http.Client) (*Provider, error) {
@@ -147,23 +269,4 @@ func (p *Provider) verify(ctx context.Context, tok *oauth2.Token) (Claims, Token
 		IDToken:      raw,
 		Expiry:       tok.Expiry,
 	}, nil
-}
-
-// LogoutURL builds the RP-initiated logout URL that ends the Keycloak session.
-func (p *Provider) LogoutURL(idToken, postLogoutRedirect string) string {
-	if p.endSession == "" {
-		return postLogoutRedirect
-	}
-	u, err := url.Parse(p.endSession)
-	if err != nil {
-		return postLogoutRedirect
-	}
-	q := u.Query()
-	q.Set("client_id", p.oauth.ClientID)
-	q.Set("post_logout_redirect_uri", postLogoutRedirect)
-	if idToken != "" {
-		q.Set("id_token_hint", idToken)
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
 }

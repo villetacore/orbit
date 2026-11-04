@@ -1,18 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AtSign, CalendarDays, Check, Copy, ExternalLink, Fingerprint, Mail } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { api, errorMessage, type Profile, type ProfileUpdate } from '../api';
+import { Alert, Badge, Button, Card, CopyButton, DescriptionList, Dialog, Input, PageHeader, useToast } from '@villetacore/velessoft-ui';
+import { useState, type FormEvent } from 'react';
+import { api, type Profile, type ProfileUpdate } from '../api';
 import { meQueryKey } from '../auth';
 import { AvatarEditor } from '../components/AvatarEditor';
-import { PageHeader, Skeleton } from '../components/ui';
+import { ErrorAlert, Loading, ReauthFields } from '../components/ui';
 import { attributeLabel, formatDate } from '../lib/format';
 
 export function ProfilePage() {
   const profile = useQuery({ queryKey: ['profile'], queryFn: api.profile });
-  const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: Infinity });
-  // Lives here, not in ProfileForm, because the form remounts after a save.
-  const [saved, setSaved] = useState(false);
-
   const header = <PageHeader title="Профиль" description="Как вас видят коллеги и корпоративные сервисы." />;
 
   if (profile.isPending) {
@@ -20,8 +16,8 @@ export function ProfilePage() {
       <div className="page">
         {header}
         <div className="profile-grid">
-          <Skeleton height={380} />
-          <Skeleton height={300} />
+          <Loading height={380} />
+          <Loading height={300} />
         </div>
       </div>
     );
@@ -30,7 +26,7 @@ export function ProfilePage() {
     return (
       <div className="page">
         {header}
-        <p className="form-error">{errorMessage(profile.error)}</p>
+        <ErrorAlert error={profile.error} />
       </div>
     );
   }
@@ -43,200 +39,187 @@ export function ProfilePage() {
     <div className="page">
       {header}
       <div className="profile-grid">
-        <aside className="profile-side">
-          <section className="card">
-            <div className="identity">
-              <AvatarEditor url={p.avatarUrl} name={fullName} />
-              <h2>{fullName}</h2>
-              <p className="muted">@{p.username}</p>
-              <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
-                <span className={`badge ${p.enabled ? 'badge-ok' : 'badge-danger'}`}>
-                  <span className="dot" />
-                  {p.enabled ? 'Аккаунт активен' : 'Аккаунт отключён'}
-                </span>
-              </div>
-            </div>
-            <ul className="meta">
-              <li>
-                <Mail size={16} />
-                <div className="meta-text">
-                  <small>Email</small>
-                  <div title={p.email}>{p.email || '—'}</div>
-                  {p.email && (
-                    <span className={`badge ${p.emailVerified ? 'badge-ok' : 'badge-warn'}`}>
-                      {p.emailVerified ? 'подтверждён' : 'не подтверждён'}
+        <Card flat className="identity">
+          <AvatarEditor url={p.avatarUrl} name={fullName} />
+          <h2>{fullName}</h2>
+          <p className="hint mono">@{p.username}</p>
+          <Badge tone={p.enabled ? 'success' : 'error'} dot>
+            {p.enabled ? 'Аккаунт активен' : 'Аккаунт отключён'}
+          </Badge>
+          <DescriptionList
+            items={[
+              { id: 'login', term: 'Логин', description: p.username },
+              ...(p.createdAt ? [{ id: 'created', term: 'Создан', description: formatDate(p.createdAt) }] : []),
+              {
+                id: 'sub',
+                term: 'ID в Keycloak',
+                description: (
+                  <span className="id-row">
+                    <span className="mono small">{p.sub}</span>
+                    <CopyButton size="sm" value={p.sub} label="Копировать" copiedLabel="Скопировано" errorLabel="Не удалось" />
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </Card>
+
+        <div className="page">
+          <Card flat title="Личные данные" description="Изменения сразу применяются во всех сервисах с единым входом.">
+            <ProfileForm key={JSON.stringify([p.firstName, p.lastName, p.attributes])} profile={p} />
+          </Card>
+          <EmailCard profile={p} />
+          <Card flat title="Организация и доступ" description="Управляется администратором.">
+            <DescriptionList
+              items={[
+                ...readonly.map((a) => ({ id: a.name, term: attributeLabel(a.name), description: a.value || '—' })),
+                {
+                  id: 'groups',
+                  term: 'Группы',
+                  description: p.groups.length ? (
+                    <span className="chips">
+                      {p.groups.map((g) => (
+                        <Badge key={g}>{g.replace(/^\//, '')}</Badge>
+                      ))}
                     </span>
-                  )}
-                </div>
-              </li>
-              <li>
-                <AtSign size={16} />
-                <div className="meta-text">
-                  <small>Логин</small>
-                  <div>{p.username}</div>
-                </div>
-              </li>
-              {p.createdAt && (
-                <li>
-                  <CalendarDays size={16} />
-                  <div className="meta-text">
-                    <small>Создан</small>
-                    <div>{formatDate(p.createdAt)}</div>
-                  </div>
-                </li>
-              )}
-              <li>
-                <Fingerprint size={16} />
-                <div className="meta-text">
-                  <small>ID в Keycloak</small>
-                  <div className="mono" title={p.sub}>
-                    {p.sub}
-                  </div>
-                </div>
-                <CopyButton value={p.sub} />
-              </li>
-            </ul>
-          </section>
-        </aside>
-
-        <div className="page" style={{ gap: 24 }}>
-          <section className="card">
-            <div className="card-head">
-              <div>
-                <h2>Личные данные</h2>
-                <p>Изменения сразу применяются во всех сервисах с единым входом.</p>
-              </div>
-            </div>
-            <div className="card-body">
-              <ProfileForm
-                key={JSON.stringify([p.firstName, p.lastName, p.attributes])}
-                profile={p}
-                saved={saved}
-                onSavedChange={setSaved}
-              />
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <div>
-                <h2>Организация и доступ</h2>
-                <p>Управляется администратором.</p>
-              </div>
-            </div>
-            <div className="card-body">
-              <dl className="kv">
-                {readonly.map((a) => (
-                  <Row key={a.name} label={attributeLabel(a.name)}>
-                    {a.value || <span className="muted">—</span>}
-                  </Row>
-                ))}
-                <Row label="Группы">
-                  {p.groups.length ? (
-                    p.groups.map((g) => (
-                      <span key={g} className="badge">
-                        {g.replace(/^\//, '')}
-                      </span>
-                    ))
                   ) : (
-                    <span className="muted">—</span>
-                  )}
-                </Row>
-                <Row label="Роли">
-                  {p.roles.length ? (
-                    p.roles.map((r) => (
-                      <span key={r} className="badge badge-accent">
-                        {r}
-                      </span>
-                    ))
+                    '—'
+                  ),
+                },
+                {
+                  id: 'roles',
+                  term: 'Роли',
+                  description: p.roles.length ? (
+                    <span className="chips">
+                      {p.roles.map((r) => (
+                        <Badge key={r} tone="info">
+                          {r}
+                        </Badge>
+                      ))}
+                    </span>
                   ) : (
-                    <span className="muted">—</span>
-                  )}
-                </Row>
-              </dl>
-            </div>
-          </section>
-
-          {config.data && (
-            <section className="card">
-              <div className="card-head">
-                <div>
-                  <h2>Email и вход</h2>
-                  <p>Смена email и пароля выполняется в Keycloak с подтверждением.</p>
-                </div>
-                <a className="btn" href={config.data.accountConsoleUrl} target="_blank" rel="noopener noreferrer">
-                  Открыть
-                  <ExternalLink size={14} />
-                </a>
-              </div>
-            </section>
-          )}
+                    '—'
+                  ),
+                },
+              ]}
+            />
+          </Card>
         </div>
       </div>
     </div>
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function EmailCard({ profile }: { profile: Profile }) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const verify = useMutation({
+    mutationFn: api.sendVerifyEmail,
+    onSuccess: () => toast({ tone: 'success', title: 'Письмо отправлено', description: profile.email }),
+  });
   return (
-    <>
-      <dt>{label}</dt>
-      <dd>{children}</dd>
-    </>
-  );
-}
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      className="icon-btn"
-      aria-label="Скопировать"
-      title="Скопировать"
-      onClick={() => {
-        void navigator.clipboard?.writeText(value).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
-      }}
+    <Card
+      flat
+      title="Email"
+      description="Адрес для входа и восстановления доступа."
+      actions={
+        <Button size="sm" onClick={() => setEditing(true)}>
+          Изменить
+        </Button>
+      }
     >
-      {copied ? <Check size={15} /> : <Copy size={15} />}
-    </button>
+      <div className="row">
+        <strong>{profile.email || 'не указан'}</strong>
+        {profile.email && (
+          <Badge tone={profile.emailVerified ? 'success' : 'warning'} dot>
+            {profile.emailVerified ? 'подтверждён' : 'не подтверждён'}
+          </Badge>
+        )}
+        {profile.email && !profile.emailVerified && (
+          <Button size="sm" variant="ghost" onClick={() => verify.mutate()} loading={verify.isPending}>
+            Отправить письмо для подтверждения
+          </Button>
+        )}
+      </div>
+      <ErrorAlert error={verify.error} />
+      {editing && <EmailDialog current={profile.email} onClose={() => setEditing(false)} />}
+    </Card>
   );
 }
 
-interface ProfileFormProps {
-  profile: Profile;
-  saved: boolean;
-  onSavedChange: (saved: boolean) => void;
+function EmailDialog({ current, onClose }: { current: string; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const credentials = useQuery({ queryKey: ['account', 'credentials'], queryFn: api.credentials });
+  const hasOtp = credentials.data?.credentials.some((c) => c.type === 'otp') ?? false;
+  const [email, setEmail] = useState(current);
+  const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const change = useMutation({
+    mutationFn: () => api.changeEmail({ email, currentPassword: password, otp }),
+    onSuccess: ({ verification }) => {
+      void queryClient.invalidateQueries({ queryKey: ['profile'] });
+      void queryClient.invalidateQueries({ queryKey: meQueryKey });
+      if (verification === 'sent') toast({ tone: 'success', title: 'Email изменён', description: 'Подтвердите адрес по ссылке из письма.' });
+      else if (verification === 'failed') toast({ tone: 'warning', title: 'Email изменён', description: 'Письмо для подтверждения отправить не удалось.' });
+      onClose();
+    },
+  });
+  return (
+    <Dialog
+      open
+      title="Новый email"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button type="submit" form="email-form" variant="primary" loading={change.isPending}>
+            Сохранить
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="email-form"
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          change.mutate();
+        }}
+      >
+        <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required autoFocus />
+        <Alert tone="info">Новый адрес нужно будет подтвердить по ссылке из письма.</Alert>
+        <ReauthFields password={password} otp={otp} onPassword={setPassword} onOtp={setOtp} hasOtp={hasOtp} />
+        <ErrorAlert error={change.error} />
+      </form>
+    </Dialog>
+  );
 }
 
-function ProfileForm({ profile, saved, onSavedChange }: ProfileFormProps) {
+function ProfileForm({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const editable = profile.attributes.filter((a) => a.editable);
   const [firstName, setFirstName] = useState(profile.firstName);
   const [lastName, setLastName] = useState(profile.lastName);
-  const [attrs, setAttrs] = useState<Record<string, string>>(
-    Object.fromEntries(editable.map((a) => [a.name, a.value])),
-  );
+  const [attrs, setAttrs] = useState<Record<string, string>>(Object.fromEntries(editable.map((a) => [a.name, a.value])));
 
   const save = useMutation({
     mutationFn: (input: ProfileUpdate) => api.updateProfile(input),
     onSuccess: (data) => {
       queryClient.setQueryData(['profile'], data);
       void queryClient.invalidateQueries({ queryKey: meQueryKey });
-      onSavedChange(true);
+      toast({ tone: 'success', title: 'Сохранено' });
     },
   });
 
   const dirty =
-    firstName !== profile.firstName ||
-    lastName !== profile.lastName ||
-    editable.some((a) => (attrs[a.name] ?? '') !== a.value);
+    firstName !== profile.firstName || lastName !== profile.lastName || editable.some((a) => (attrs[a.name] ?? '') !== a.value);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    onSavedChange(false);
     save.mutate({ firstName, lastName, attributes: attrs });
   }
 
@@ -247,52 +230,31 @@ function ProfileForm({ profile, saved, onSavedChange }: ProfileFormProps) {
   }
 
   return (
-    <form className="form" onSubmit={onSubmit}>
-      <div className="form-row">
-        <label className="field">
-          <span>Имя</span>
-          <input value={firstName} onChange={(e) => setFirstName(e.target.value)} required maxLength={100} />
-        </label>
-        <label className="field">
-          <span>Фамилия</span>
-          <input value={lastName} onChange={(e) => setLastName(e.target.value)} required maxLength={100} />
-        </label>
+    <form className="stack" onSubmit={onSubmit}>
+      <div className="form-grid">
+        <Input label="Имя" value={firstName} onChange={(e) => setFirstName(e.target.value)} required maxLength={100} />
+        <Input label="Фамилия" value={lastName} onChange={(e) => setLastName(e.target.value)} required maxLength={100} />
+        {editable.map((a) => (
+          <Input
+            key={a.name}
+            label={attributeLabel(a.name)}
+            value={attrs[a.name] ?? ''}
+            maxLength={255}
+            type={a.name === 'phoneNumber' ? 'tel' : 'text'}
+            placeholder={a.name === 'phoneNumber' ? '+7 900 000-00-00' : undefined}
+            onChange={(e) => setAttrs({ ...attrs, [a.name]: e.target.value })}
+          />
+        ))}
       </div>
-      {editable.length > 0 && (
-        <div className="form-row">
-          {editable.map((a) => (
-            <label key={a.name} className="field">
-              <span>{attributeLabel(a.name)}</span>
-              <input
-                value={attrs[a.name] ?? ''}
-                maxLength={255}
-                type={a.name === 'phoneNumber' ? 'tel' : 'text'}
-                placeholder={a.name === 'phoneNumber' ? '+7 900 000-00-00' : undefined}
-                onChange={(e) => setAttrs({ ...attrs, [a.name]: e.target.value })}
-              />
-            </label>
-          ))}
-        </div>
-      )}
-      {save.isError && (
-        <p className="form-error" role="alert">
-          {errorMessage(save.error)}
-        </p>
-      )}
-      <div className="form-actions">
-        <button className="btn btn-primary" type="submit" disabled={!dirty || save.isPending}>
-          {save.isPending ? 'Сохранение…' : 'Сохранить изменения'}
-        </button>
+      <ErrorAlert error={save.error} />
+      <div className="row">
+        <Button type="submit" variant="primary" disabled={!dirty} loading={save.isPending}>
+          Сохранить изменения
+        </Button>
         {dirty && (
-          <button className="btn btn-ghost" type="button" onClick={reset} disabled={save.isPending}>
+          <Button variant="ghost" onClick={reset} disabled={save.isPending}>
             Отменить
-          </button>
-        )}
-        {saved && !dirty && (
-          <span className="saved" role="status">
-            <Check size={16} />
-            Сохранено
-          </span>
+          </Button>
         )}
       </div>
     </form>

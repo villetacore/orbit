@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"maps"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/oauth2"
 
+	"github.com/villetacore/orbit/backend/internal/auth"
 	"github.com/villetacore/orbit/backend/internal/seal"
 )
 
@@ -30,26 +32,26 @@ const authStateTTL = 10 * time.Minute
 
 var authStateAAD = []byte("orbit-auth-state")
 
-// Keycloak application-initiated actions a user may trigger from Orbit.
+// Keycloak application-initiated actions a user may trigger from Orbit. Only
+// what cannot work without Keycloak's own origin stays here: WebAuthn keys are
+// bound to it, and linking an account is a redirect to the external provider.
 // Keycloak re-authenticates the user before applying them.
 var allowedActions = map[string]bool{
-	"UPDATE_PASSWORD":   true,
-	"CONFIGURE_TOTP":    true,
-	"webauthn-register": true,
+	"webauthn-register":              true,
+	"webauthn-register-passwordless": true,
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.startLogin(w, r, safeReturnTo(r.URL.Query().Get("return_to")), nil)
 }
 
-// deleteCredentialAction is Keycloak's parameterized AIA for removing one of
-// the user's own credentials ("delete_credential:<id>"); Keycloak checks that
-// the credential belongs to the re-authenticated user.
-const deleteCredentialAction = "delete_credential:"
+// linkAccountAction is Keycloak's parameterized AIA for linking an external
+// identity provider ("idp_link:<alias>").
+const linkAccountAction = "idp_link:"
 
 func validAction(action string) bool {
-	if id, ok := strings.CutPrefix(action, deleteCredentialAction); ok {
-		return isKeycloakID(id)
+	if alias, ok := strings.CutPrefix(action, linkAccountAction); ok {
+		return isKeycloakID(alias)
 	}
 	return allowedActions[action]
 }
@@ -128,23 +130,132 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.loginFailed(w, r, err.Error())
 		return
 	}
+	if err := s.establishSession(w, r, claims, tokens); err != nil {
+		s.log.Error("create session", "err", err)
+		s.loginFailed(w, r, "session store error")
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusFound)
+}
 
+// establishSession opens the Orbit session after any kind of successful login.
+func (s *Server) establishSession(w http.ResponseWriter, r *http.Request, claims auth.Claims, tokens auth.Tokens) error {
 	// Rotate the session on every login to prevent fixation.
 	if old, err := r.Cookie(sessionCookie); err == nil {
 		_ = s.sessions.Delete(r.Context(), old.Value)
 	}
 	sess, err := s.sessions.Create(r.Context(), claims, tokens)
 	if err != nil {
-		s.log.Error("create session", "err", err)
-		s.loginFailed(w, r, "session store error")
-		return
+		return err
 	}
 	if err := s.store.TouchProfile(r.Context(), claims.Subject); err != nil {
 		s.log.Error("touch profile", "err", err)
 	}
 	s.setCookie(w, sessionCookie, sess.ID, "/", int(time.Until(sess.ExpiresAt).Seconds()))
 	s.audit(r, claims.Subject, "auth.login", claims.Subject, nil)
-	http.Redirect(w, r, returnTo, http.StatusFound)
+	return nil
+}
+
+type passwordLoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	OTP      string `json:"otp"`
+	// NewPassword completes a sign-in with a temporary password.
+	NewPassword string `json:"newPassword"`
+}
+
+// handlePasswordLogin signs the user in from Orbit's own form. There is no
+// session yet to carry a CSRF token, so the Origin must match and the body must
+// be JSON, which a cross-site form cannot send without a CORS preflight.
+func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
+	if o := r.Header.Get("Origin"); o != "" && o != s.cfg.PublicURL {
+		writeError(w, http.StatusForbidden, "bad_origin", "Запрос с недопустимого источника")
+		return
+	}
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		writeError(w, http.StatusUnsupportedMediaType, "bad_request", "Ожидается JSON")
+		return
+	}
+	var in passwordLoginRequest
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	in.Username = strings.TrimSpace(in.Username)
+	if in.Username == "" || in.Password == "" {
+		writeError(w, http.StatusUnprocessableEntity, "validation", "Введите логин и пароль")
+		return
+	}
+	login := auth.PasswordLogin{Username: in.Username, Password: in.Password, OTP: strings.TrimSpace(in.OTP), ClientIP: clientIP(r)}
+	claims, tokens, err := s.oidc.Login(r.Context(), login)
+	if errors.Is(err, auth.ErrAccountSetup) {
+		// Keycloak says this only after the password and code checked out.
+		if !s.finishAccountSetup(w, r, in) {
+			return
+		}
+		login.Password = in.NewPassword
+		claims, tokens, err = s.oidc.Login(r.Context(), login)
+	}
+	switch {
+	case err == nil:
+	case errors.Is(err, auth.ErrInvalidCredentials), errors.Is(err, auth.ErrAccountDisabled):
+		// A disabled account gets the same answer: the form must not reveal
+		// which logins exist.
+		s.log.Info("password login rejected", "err", err)
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный логин, пароль или код подтверждения")
+		return
+	case errors.Is(err, auth.ErrAccountSetup):
+		writeBrowserRequired(w)
+		return
+	case errors.Is(err, auth.ErrPasswordGrantDisabled):
+		s.log.Error("password login: enable Direct access grants on the Orbit client in Keycloak", "client", s.cfg.ClientID)
+		writeBrowserRequired(w)
+		return
+	default:
+		s.log.Error("password login", "err", err)
+		writeError(w, http.StatusBadGateway, "keycloak", "Сервис идентификации недоступен")
+		return
+	}
+	if err := s.establishSession(w, r, claims, tokens); err != nil {
+		s.log.Error("create session", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal", "Не удалось создать сессию")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeBrowserRequired tells the form to fall back to Keycloak's own pages for
+// what Orbit cannot do inline, such as a required action other than a password.
+func writeBrowserRequired(w http.ResponseWriter) {
+	writeError(w, http.StatusConflict, "browser_required", "Для этой учётной записи нужно завершить настройку на странице единого входа")
+}
+
+// finishAccountSetup handles the required action Orbit can do itself, replacing
+// a temporary password. It returns true when the login should be retried, and
+// otherwise writes the response. The caller has already proven the credentials.
+func (s *Server) finishAccountSetup(w http.ResponseWriter, r *http.Request, in passwordLoginRequest) bool {
+	u, err := s.kc.FindUserByLogin(r.Context(), in.Username)
+	if err != nil {
+		s.keycloakError(w, err)
+		return false
+	}
+	if !slices.Contains(u.RequiredActions, "UPDATE_PASSWORD") {
+		writeBrowserRequired(w)
+		return false
+	}
+	if in.NewPassword == "" {
+		writeError(w, http.StatusConflict, "password_change_required", "Задайте новый пароль, чтобы завершить вход")
+		return false
+	}
+	if in.NewPassword == in.Password {
+		writeError(w, http.StatusUnprocessableEntity, "validation", "Новый пароль должен отличаться от временного")
+		return false
+	}
+	if err := s.kc.SetPassword(r.Context(), u.ID, in.NewPassword, false); err != nil {
+		s.keycloakError(w, err)
+		return false
+	}
+	s.audit(r, u.ID, "auth.password.first_change", u.ID, nil)
+	return true
 }
 
 func (s *Server) loginFailed(w http.ResponseWriter, r *http.Request, reason string) {
@@ -158,10 +269,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("delete session", "err", err)
 	}
 	s.clearCookie(w, sessionCookie, "/")
+	// The Orbit session is gone either way; a Keycloak failure must not keep
+	// the user signed in here, and the session expires there on its own.
+	if err := s.oidc.EndSession(r.Context(), sess.Tokens.RefreshToken); err != nil {
+		s.log.Warn("end keycloak session", "sub", sess.Claims.Subject, "err", err)
+	}
 	s.audit(r, sess.Claims.Subject, "auth.logout", sess.Claims.Subject, nil)
-	writeJSON(w, http.StatusOK, map[string]string{
-		"redirectUrl": s.oidc.LogoutURL(sess.Tokens.IDToken, s.cfg.PublicURL+"/"),
-	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // safeReturnTo only accepts same-origin relative paths to avoid open redirects.
@@ -219,24 +333,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type configResponse struct {
-	AccountConsoleURL   string            `json:"accountConsoleUrl"`
-	SecurityLinks       map[string]string `json:"securityLinks"`
-	Actions             []string          `json:"actions"`
-	RegistrationEnabled bool              `json:"registrationEnabled"`
+	Actions             []string `json:"actions"`
+	RegistrationEnabled bool     `json:"registrationEnabled"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
-	acc := s.cfg.AccountConsoleURL()
-	actions := slices.Sorted(maps.Keys(allowedActions))
 	writeJSON(w, http.StatusOK, configResponse{
-		AccountConsoleURL: acc,
-		SecurityLinks: map[string]string{
-			"signingIn":      acc + "/account-security/signing-in",
-			"deviceActivity": acc + "/account-security/device-activity",
-			"linkedAccounts": acc + "/account-security/linked-accounts",
-			"applications":   acc + "/applications",
-		},
-		Actions:             actions,
+		Actions:             slices.Sorted(maps.Keys(allowedActions)),
 		RegistrationEnabled: s.cfg.RegistrationEnabled,
 	})
 }

@@ -106,7 +106,8 @@ func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
 	ref := chi.URLParam(r, "ref")
 	sess, err := s.currentSession(r)
 	if err != nil {
-		http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape("/go/"+ref), http.StatusFound)
+		// Orbit's sign-in form comes back here after a successful login.
+		http.Redirect(w, r, "/login?return_to="+url.QueryEscape("/go/"+ref), http.StatusFound)
 		return
 	}
 	all, err := s.store.ListServices(r.Context())

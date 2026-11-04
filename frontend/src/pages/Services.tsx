@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, RotateCcw, Search, SearchX, Star } from 'lucide-react';
+import { Alert, Button, EmptyState, Grid, PageHeader, SearchInput, SegmentedControl, Toggle } from '@villetacore/velessoft-ui';
+import { RotateCcw, SearchX, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { api, errorMessage } from '../api';
+import { api } from '../api';
 import { ServiceCard, servicesQueryKey } from '../components/ServiceCard';
-import { EmptyState, PageHeader, Skeleton } from '../components/ui';
+import { ErrorAlert, Loading } from '../components/ui';
 import { filterServices } from '../lib/filterServices';
 import { plural } from '../lib/format';
 
@@ -38,80 +39,65 @@ export function Services() {
         title="Сервисы"
         description={
           services.isSuccess
-            ? `${all.length} ${plural(all.length, 'сервис доступен', 'сервиса доступно', 'сервисов доступно')} вашей учётной записи. Вход — автоматически, через единый аккаунт.`
+            ? `${all.length} ${plural(all.length, 'сервис доступен', 'сервиса доступно', 'сервисов доступно')} вашей учётной записи.`
             : 'Корпоративные приложения с единым входом.'
         }
       />
 
-      {unavailable && (
-        <div className="alert alert-warn" role="status">
-          <AlertTriangle size={16} />
-          <span>Сервис «{unavailable}» недоступен для вашей учётной записи или отключён.</span>
-        </div>
-      )}
+      {unavailable && <Alert tone="warning">Сервис «{unavailable}» недоступен для вашей учётной записи или отключён.</Alert>}
 
-      <div className="section">
-        <div className="toolbar">
-          <label className="input-icon">
-            <Search size={16} />
-            <input
-              type="search"
-              placeholder="Поиск по названию, описанию или категории"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Поиск сервисов"
-            />
-          </label>
-          <div className="segmented" role="group" aria-label="Фильтр">
-            <button aria-pressed={!favoritesOnly} onClick={() => setParam('favorites', '')}>
-              Все
-            </button>
-            <button aria-pressed={favoritesOnly} onClick={() => setParam('favorites', '1')}>
-              <Star size={14} />
-              Избранное
-            </button>
-          </div>
-        </div>
-
-        {services.data && services.data.categories.length > 1 && (
-          <div className="chips" role="group" aria-label="Категории">
-            <button className={`chip${category === '' ? ' chip-on' : ''}`} onClick={() => setParam('category', '')}>
-              Все категории
-            </button>
-            {services.data.categories.map((c) => (
-              <button
-                key={c}
-                className={`chip${category === c ? ' chip-on' : ''}`}
-                onClick={() => setParam('category', category === c ? '' : c)}
-              >
-                {c}
-                <span className="chip-count">{counts.get(c)}</span>
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="filters">
+        <SearchInput
+          label="Поиск сервисов"
+          clearLabel="Очистить поиск"
+          placeholder="Название, описание или категория"
+          value={query}
+          onValueChange={setQuery}
+        />
+        <SegmentedControl
+          label="Показывать"
+          value={favoritesOnly ? 'favorites' : 'all'}
+          onChange={(v) => setParam('favorites', v === 'favorites' ? '1' : '')}
+          options={[
+            { value: 'all', label: 'Все' },
+            { value: 'favorites', label: 'Избранное' },
+          ]}
+        />
       </div>
 
-      {services.isPending && (
-        <div className="grid">
-          <Skeleton height={140} count={6} />
+      {services.data && services.data.categories.length > 1 && (
+        <div className="chips" role="group" aria-label="Категории">
+          <Toggle size="sm" pressed={category === ''} onPressedChange={() => setParam('category', '')}>
+            Все категории
+          </Toggle>
+          {services.data.categories.map((c) => (
+            <Toggle key={c} size="sm" pressed={category === c} onPressedChange={() => setParam('category', category === c ? '' : c)}>
+              {c} · {counts.get(c)}
+            </Toggle>
+          ))}
         </div>
       )}
-      {services.isError && <p className="form-error">{errorMessage(services.error)}</p>}
+
+      {services.isPending && (
+        <Grid min={260}>
+          <Loading height={140} count={6} />
+        </Grid>
+      )}
+      <ErrorAlert error={services.error} />
       {services.isSuccess && visible.length === 0 && (
         <EmptyState
-          icon={favoritesOnly && !query ? Star : SearchX}
+          icon={favoritesOnly && !query ? <Star size={20} /> : <SearchX size={20} />}
           title={favoritesOnly && !query ? 'В избранном пока ничего нет' : 'Ничего не найдено'}
-          text={
+          description={
             favoritesOnly && !query
               ? 'Нажмите на звёздочку у сервиса, чтобы закрепить его здесь и на главной.'
               : query
                 ? `По запросу «${query}» ничего нет. Измените запрос или сбросьте фильтры.`
                 : 'В этой подборке нет сервисов.'
           }
-          action={
-            <button
-              className="btn"
+          actions={
+            <Button
+              className="with-icon"
               onClick={() => {
                 setQuery('');
                 setParams(new URLSearchParams(), { replace: true });
@@ -119,17 +105,17 @@ export function Services() {
             >
               <RotateCcw size={16} />
               Сбросить фильтры
-            </button>
+            </Button>
           }
         />
       )}
 
       {visible.length > 0 && (
-        <div className="grid">
+        <Grid min={260}>
           {visible.map((s) => (
             <ServiceCard key={s.id} service={s} />
           ))}
-        </div>
+        </Grid>
       )}
     </div>
   );

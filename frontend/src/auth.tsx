@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, Spinner } from '@villetacore/velessoft-ui';
 import { createContext, useContext, type ReactNode } from 'react';
 import { ApiError, api, errorMessage, setCsrfToken, type Me } from './api';
 import { BrandMark } from './components/ui';
@@ -31,8 +32,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (me.isPending) {
     return (
-      <div className="splash" role="status" aria-label="Загрузка">
+      <div className="splash">
         <BrandMark size={24} />
+        <Spinner label="Загрузка" />
       </div>
     );
   }
@@ -43,10 +45,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <div className="splash">
         <BrandMark size={24} />
-        <p>Не удалось загрузить данные аккаунта: {errorMessage(me.error)}</p>
-        <button className="btn" onClick={() => me.refetch()}>
-          Повторить
-        </button>
+        <Alert tone="error" title="Не удалось загрузить данные аккаунта">
+          {errorMessage(me.error)}
+        </Alert>
+        <Button onClick={() => me.refetch()}>Повторить</Button>
       </div>
     );
   }

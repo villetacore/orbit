@@ -30,6 +30,10 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       # Browsers and Orbit must see the same issuer URL.
       KC_HOSTNAME: http://localhost:8081
+      # Orbit signs users in from its backend and forwards their address, so
+      # Keycloak's sessions and events show the user's IP, not Orbit's. Dev only:
+      # in production trust these headers only from your own proxy.
+      KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
     ports:
       - "8081:8080"

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, request, setCsrfToken } from './api';
+import { ApiError, request, safeReturnTo, setCsrfToken } from './api';
 
 function mockFetch(status: number, body?: unknown) {
   const fn = vi.fn(async () =>
@@ -48,5 +48,14 @@ describe('request', () => {
   it('returns undefined for 204', async () => {
     mockFetch(204);
     await expect(request('DELETE', '/api/profile/avatar')).resolves.toBeUndefined();
+  });
+});
+
+describe('safeReturnTo', () => {
+  it('only allows paths on this origin', () => {
+    expect(safeReturnTo('/go/wiki')).toBe('/go/wiki');
+    for (const bad of ['https://evil.test', '//evil.test', '/\\evil.test', null, '']) {
+      expect(safeReturnTo(bad)).toBeNull();
+    }
   });
 });

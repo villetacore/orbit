@@ -24,7 +24,7 @@ export function useBranding(): Branding {
 }
 
 // applyBranding pushes branding into the document: title, favicon and the
-// CSS variables the theme derives its colors from.
+// CSS variables styles.css maps onto the design tokens.
 export function applyBranding(b: Branding) {
   const root = document.documentElement.style;
   if (isHexColor(b.primaryColor)) {

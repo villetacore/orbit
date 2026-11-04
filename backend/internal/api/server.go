@@ -27,7 +27,8 @@ type OIDC interface {
 	AuthCodeURL(state, nonce, verifier string, extra map[string]string) string
 	Exchange(ctx context.Context, code, verifier, nonce string) (auth.Claims, auth.Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (auth.Claims, auth.Tokens, error)
-	LogoutURL(idToken, postLogoutRedirect string) string
+	Login(ctx context.Context, in auth.PasswordLogin) (auth.Claims, auth.Tokens, error)
+	EndSession(ctx context.Context, refreshToken string) error
 }
 
 // Keycloak is the Admin REST API subset Orbit uses (implemented by keycloak.Admin).
@@ -44,6 +45,20 @@ type Keycloak interface {
 	ExecuteActionsEmail(ctx context.Context, id string, actions []string) error
 	CreateUser(ctx context.Context, u *keycloak.User) (string, error)
 	SetPassword(ctx context.Context, id, password string, temporary bool) error
+	FindUserByLogin(ctx context.Context, login string) (*keycloak.User, error)
+	AddOTPCredential(ctx context.Context, id string, c keycloak.OTPCredential) error
+	DeleteCredential(ctx context.Context, id, credentialID string) error
+	SetCredentialLabel(ctx context.Context, id, credentialID, label string) error
+	GetRealm(ctx context.Context) (*keycloak.RealmSettings, error)
+	UserConsents(ctx context.Context, id string) ([]keycloak.Consent, error)
+	DeleteConsent(ctx context.Context, id, clientID string) error
+	FederatedIdentities(ctx context.Context, id string) ([]keycloak.FederatedIdentity, error)
+	DeleteFederatedIdentity(ctx context.Context, id, provider string) error
+	IdentityProviders(ctx context.Context) ([]keycloak.IdentityProvider, error)
+	UserEvents(ctx context.Context, id string, limit int) ([]keycloak.Event, error)
+	SendVerifyEmail(ctx context.Context, id string) error
+	Raw(ctx context.Context, method, path string, body []byte, contentType string) (*keycloak.RawResponse, error)
+	RealmPath() string
 }
 
 type Deps struct {
@@ -75,6 +90,7 @@ type Server struct {
 	uploadLimiter   *limiter
 	writeLimiter    *limiter
 	registerLimiter *limiter
+	loginLimiter    *limiter
 }
 
 func New(d Deps) http.Handler {
@@ -94,6 +110,9 @@ func New(d Deps) http.Handler {
 		writeLimiter:  newLimiter(120, 30),
 		// Sign-up requests are public: ten per IP and minute, with room to fix typos.
 		registerLimiter: newLimiter(10, 10),
+		// Passwords are checked here: Keycloak's brute-force detection guards
+		// each account, this guards against spraying many accounts from one IP.
+		loginLimiter: newLimiter(20, 10),
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -114,6 +133,7 @@ func (s *Server) routes() http.Handler {
 	r.Route("/auth", func(r chi.Router) {
 		r.Use(s.rateLimit(s.authLimiter))
 		r.Get("/login", s.handleLogin)
+		r.With(s.rateLimit(s.loginLimiter)).Post("/password", s.handlePasswordLogin)
 		r.Get("/action/{action}", s.handleAction)
 		r.Get("/callback", s.handleCallback)
 		r.With(s.requireSession, s.requireCSRF).Post("/logout", s.handleLogout)
@@ -142,6 +162,22 @@ func (s *Server) routes() http.Handler {
 			r.Delete("/account/sessions/{id}", s.handleAccountEndSession)
 			r.Post("/account/sessions/end-others", s.handleAccountEndOtherSessions)
 			r.Get("/account/credentials", s.handleAccountCredentials)
+			r.Put("/account/credentials/{id}/label", s.handleAccountRenameCredential)
+			r.Get("/account/linked", s.handleAccountLinked)
+			r.Delete("/account/linked/{provider}", s.handleAccountUnlink)
+			r.Get("/account/consents", s.handleAccountConsents)
+			r.Delete("/account/consents/{client}", s.handleAccountRevokeConsent)
+			r.Get("/account/events", s.handleAccountEvents)
+			r.Post("/account/verify-email", s.handleAccountVerifyEmail)
+			r.Group(func(r chi.Router) {
+				// These re-check the password, so they share the login limit.
+				r.Use(s.rateLimit(s.loginLimiter))
+				r.Post("/account/password", s.handleAccountPassword)
+				r.Post("/account/email", s.handleAccountEmail)
+				r.Post("/account/totp/setup", s.handleAccountTOTPSetup)
+				r.Post("/account/totp", s.handleAccountTOTPConfirm)
+				r.Post("/account/credentials/{id}/delete", s.handleAccountDeleteCredential)
+			})
 			r.Get("/users", s.handleListUsers)
 			r.Get("/users/{sub}", s.handleGetUser)
 
@@ -162,6 +198,9 @@ func (s *Server) routes() http.Handler {
 				r.Patch("/users/{sub}", s.handleAdminUpdateUser)
 				r.Post("/users/{sub}/logout", s.handleAdminLogoutUser)
 				r.Post("/users/{sub}/actions-email", s.handleAdminActionsEmail)
+				r.Get("/keycloak-serverinfo", s.handleKeycloakServerInfo)
+				r.HandleFunc("/keycloak", s.handleKeycloakProxy)
+				r.HandleFunc("/keycloak/*", s.handleKeycloakProxy)
 			})
 		})
 
