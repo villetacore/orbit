@@ -40,6 +40,13 @@ type fakeOIDC struct {
 	refreshExpiry time.Time
 	refreshErr    error
 	refreshCalled int
+
+	logins          []auth.PasswordLogin
+	loginErr        error
+	currentPassword string
+	otp             string
+	setupFor        string // password that signs in but has pending required actions
+	ended           []string
 }
 
 func (f *fakeOIDC) AuthCodeURL(state, nonce, _ string, extra map[string]string) string {
@@ -73,8 +80,35 @@ func (f *fakeOIDC) Refresh(_ context.Context, _ string) (auth.Claims, auth.Token
 	return f.claims, auth.Tokens{AccessToken: "at2", RefreshToken: "rt2", IDToken: "idt2", Expiry: exp}, nil
 }
 
-func (f *fakeOIDC) LogoutURL(idToken, redirect string) string {
-	return "https://idp.test/logout?id_token_hint=" + idToken + "&post_logout_redirect_uri=" + url.QueryEscape(redirect)
+// Login accepts alice with the current password (default "secret").
+func (f *fakeOIDC) Login(_ context.Context, in auth.PasswordLogin) (auth.Claims, auth.Tokens, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logins = append(f.logins, in)
+	if f.loginErr != nil {
+		return auth.Claims{}, auth.Tokens{}, f.loginErr
+	}
+	if in.Username != "alice" || in.Password != f.password() || f.otp != "" && in.OTP != f.otp {
+		return auth.Claims{}, auth.Tokens{}, auth.ErrInvalidCredentials
+	}
+	if f.setupFor == in.Password {
+		return auth.Claims{}, auth.Tokens{}, auth.ErrAccountSetup
+	}
+	return f.claims, auth.Tokens{AccessToken: "at", RefreshToken: "rt-pw", IDToken: "idt", Expiry: f.expiry}, nil
+}
+
+func (f *fakeOIDC) password() string {
+	if f.currentPassword != "" {
+		return f.currentPassword
+	}
+	return "secret"
+}
+
+func (f *fakeOIDC) EndSession(_ context.Context, refreshToken string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ended = append(f.ended, refreshToken)
+	return nil
 }
 
 type fakeKeycloak struct {
@@ -86,6 +120,83 @@ type fakeKeycloak struct {
 	emails      map[string][]string
 	emailErr    error
 	passwords   map[string]string
+
+	otps      []keycloak.OTPCredential
+	deleted   []string
+	raw       []string
+	rawStatus map[string]*keycloak.RawResponse
+
+	onSetPassword func(string)
+}
+
+func (k *fakeKeycloak) FindUserByLogin(_ context.Context, login string) (*keycloak.User, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for _, u := range k.users {
+		if u.Username == login || u.Email == login {
+			cp := *u
+			return &cp, nil
+		}
+	}
+	return nil, keycloak.ErrNotFound
+}
+
+func (k *fakeKeycloak) AddOTPCredential(_ context.Context, _ string, c keycloak.OTPCredential) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.otps = append(k.otps, c)
+	return nil
+}
+
+func (k *fakeKeycloak) DeleteCredential(_ context.Context, _, credentialID string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.deleted = append(k.deleted, credentialID)
+	return nil
+}
+
+func (k *fakeKeycloak) SetCredentialLabel(context.Context, string, string, string) error { return nil }
+
+func (k *fakeKeycloak) GetRealm(context.Context) (*keycloak.RealmSettings, error) {
+	return &keycloak.RealmSettings{DisplayName: "Orbit", OTPPolicyType: "totp", OTPPolicyAlgorithm: "HmacSHA1",
+		OTPPolicyDigits: 6, OTPPolicyPeriod: 30, OTPPolicyLookAhead: 1}, nil
+}
+
+func (k *fakeKeycloak) UserConsents(context.Context, string) ([]keycloak.Consent, error) {
+	return []keycloak.Consent{{ClientID: "wiki", GrantedClientScopes: []string{"email"}}}, nil
+}
+
+func (k *fakeKeycloak) DeleteConsent(context.Context, string, string) error { return nil }
+
+func (k *fakeKeycloak) FederatedIdentities(context.Context, string) ([]keycloak.FederatedIdentity, error) {
+	return []keycloak.FederatedIdentity{{IdentityProvider: "github", UserName: "alice-gh"}}, nil
+}
+
+func (k *fakeKeycloak) DeleteFederatedIdentity(context.Context, string, string) error { return nil }
+
+func (k *fakeKeycloak) IdentityProviders(context.Context) ([]keycloak.IdentityProvider, error) {
+	return []keycloak.IdentityProvider{
+		{Alias: "github", Enabled: true}, {Alias: "google", DisplayName: "Google", Enabled: true}, {Alias: "off", Enabled: false},
+	}, nil
+}
+
+func (k *fakeKeycloak) UserEvents(context.Context, string, int) ([]keycloak.Event, error) {
+	return []keycloak.Event{{Time: 1000, Type: "LOGIN", ClientID: "orbit-web", IPAddress: "10.0.0.1",
+		Details: map[string]string{"token_id": "must-not-leak"}}}, nil
+}
+
+func (k *fakeKeycloak) SendVerifyEmail(context.Context, string) error { return nil }
+
+func (k *fakeKeycloak) RealmPath() string { return "/admin/realms/orbit" }
+
+func (k *fakeKeycloak) Raw(_ context.Context, method, path string, _ []byte, _ string) (*keycloak.RawResponse, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.raw = append(k.raw, method+" "+path)
+	if r, ok := k.rawStatus[method+" "+path]; ok {
+		return r, nil
+	}
+	return &keycloak.RawResponse{Status: http.StatusOK, ContentType: "application/json", Body: []byte(`{"ok":true}`)}, nil
 }
 
 func (k *fakeKeycloak) CreateUser(_ context.Context, u *keycloak.User) (string, error) {
@@ -109,6 +220,9 @@ func (k *fakeKeycloak) SetPassword(_ context.Context, id, password string, _ boo
 		k.passwords = map[string]string{}
 	}
 	k.passwords[id] = password
+	if k.onSetPassword != nil {
+		k.onSetPassword(password)
+	}
 	return nil
 }
 
@@ -212,6 +326,7 @@ type harness struct {
 	store  *store.Memory
 	files  *avatar.Memory
 	cfg    *config.Config
+	sealer *seal.Sealer
 	csrf   string
 }
 
@@ -231,8 +346,9 @@ func newHarness(t *testing.T, roles ...string) *harness {
 		t.Fatal(err)
 	}
 	h := &harness{
-		t:   t,
-		cfg: cfg,
+		t:      t,
+		cfg:    cfg,
+		sealer: sealer,
 		oidc: &fakeOIDC{
 			claims: auth.Claims{Subject: "user-1", PreferredUsername: "alice", Email: "alice@example.com", Roles: roles, SessionID: "s-current"},
 			expiry: time.Now().Add(time.Hour),
@@ -348,10 +464,9 @@ func TestLoginFlow(t *testing.T) {
 		t.Fatal("login not audited")
 	}
 
-	var out map[string]string
-	h.decode(h.write("POST", "/auth/logout", nil), http.StatusOK, &out)
-	if !strings.Contains(out["redirectUrl"], "id_token_hint=idt") {
-		t.Fatalf("logout url: %q", out["redirectUrl"])
+	h.decode(h.write("POST", "/auth/logout", nil), http.StatusNoContent, nil)
+	if !slices.Contains(h.oidc.ended, "rt") {
+		t.Fatalf("keycloak session not ended: %v", h.oidc.ended)
 	}
 	if resp := h.do("GET", "/api/me", nil, nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("after logout: %d", resp.StatusCode)
@@ -372,8 +487,8 @@ func TestCallbackRejectsBadState(t *testing.T) {
 
 func TestSecurityActionPassesKcAction(t *testing.T) {
 	h := newHarness(t)
-	resp := h.do("GET", "/auth/action/UPDATE_PASSWORD", nil, nil)
-	if resp.StatusCode != http.StatusFound || h.oidc.lastExtra["kc_action"] != "UPDATE_PASSWORD" {
+	resp := h.do("GET", "/auth/action/webauthn-register", nil, nil)
+	if resp.StatusCode != http.StatusFound || h.oidc.lastExtra["kc_action"] != "webauthn-register" {
 		t.Fatalf("status %d extra %v", resp.StatusCode, h.oidc.lastExtra)
 	}
 	if resp := h.do("GET", "/auth/action/delete_account", nil, nil); resp.StatusCode != http.StatusBadRequest {
@@ -555,7 +670,7 @@ func TestLaunchRequiresLogin(t *testing.T) {
 	h := newHarness(t)
 	h.seedServices()
 	r := h.do("GET", "/go/wiki", nil, nil)
-	if r.Header.Get("Location") != "/auth/login?return_to=%2Fgo%2Fwiki" {
+	if r.Header.Get("Location") != "/login?return_to=%2Fgo%2Fwiki" {
 		t.Fatalf("location %q", r.Header.Get("Location"))
 	}
 }

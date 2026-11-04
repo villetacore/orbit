@@ -1,11 +1,26 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, LogOut, Mail, Search, UserRoundX, Users } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  Card,
+  DescriptionList,
+  Divider,
+  Drawer,
+  EmptyState,
+  Grid,
+  Input,
+  PageHeader,
+  SearchInput,
+  ToggleGroup,
+  useToast,
+} from '@villetacore/velessoft-ui';
+import { KeyRound, LogOut, Mail, UserRoundX, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
-import { api, errorMessage, type DirectoryUser, type EmailAction, type UserDetail } from '../api';
+import { api, type DirectoryUser, type EmailAction, type UserDetail } from '../api';
 import { useMe } from '../auth';
 import { Avatar } from '../components/Avatar';
-import { Drawer, EmptyState, PageHeader, Skeleton } from '../components/ui';
+import { ErrorAlert, LinkButton, Loading } from '../components/ui';
 import { attributeLabel, formatDate } from '../lib/format';
 import { credentialTitle, SessionRow } from './Security';
 
@@ -44,10 +59,9 @@ export function People() {
   });
   const list = users.data?.pages.flatMap((p) => p.users) ?? [];
 
-  const open = (sub: string | null) =>
+  const open = (sub: string) =>
     setParams((p) => {
-      if (sub) p.set('user', sub);
-      else p.delete('user');
+      p.set('user', sub);
       return p;
     });
   const close = useCallback(
@@ -69,57 +83,35 @@ export function People() {
             : 'Коллеги из корпоративного каталога: контакты, подразделения и группы.'
         }
       />
-      <div className="toolbar">
-        <label className="input-icon">
-          <Search size={18} />
-          <span className="sr-only">Поиск</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Имя, логин или email"
-            autoFocus
-          />
-        </label>
-      </div>
+      <SearchInput label="Поиск" clearLabel="Очистить" value={query} onValueChange={setQuery} placeholder="Имя, логин или email" autoFocus />
 
       {users.isPending && (
-        <div className="people">
-          <Skeleton height={96} count={6} />
-        </div>
+        <Grid min={280}>
+          <Loading height={96} count={6} />
+        </Grid>
       )}
-      {users.isError && <p className="form-error">{errorMessage(users.error)}</p>}
+      <ErrorAlert error={users.error} />
       {users.isSuccess && list.length === 0 && (
         <EmptyState
-          icon={Users}
+          icon={<Users size={20} />}
           title={q ? 'Никого не нашли' : 'Каталог пуст'}
-          text={q ? `По запросу «${q}» нет пользователей.` : undefined}
-          action={
-            q && (
-              <button className="btn" onClick={() => setQuery('')}>
-                Сбросить поиск
-              </button>
-            )
-          }
+          description={q ? `По запросу «${q}» нет пользователей.` : undefined}
+          actions={q ? <Button onClick={() => setQuery('')}>Сбросить поиск</Button> : undefined}
         />
       )}
       {list.length > 0 && (
-        <div className="people">
+        <Grid min={280}>
           {list.map((u) => (
             <PersonCard key={u.sub} user={u} onOpen={() => open(u.sub)} />
           ))}
-        </div>
+        </Grid>
       )}
       {users.hasNextPage && (
-        <button
-          className="btn"
-          style={{ alignSelf: 'center' }}
-          onClick={() => users.fetchNextPage()}
-          disabled={users.isFetchingNextPage}
-          aria-busy={users.isFetchingNextPage}
-        >
-          Показать ещё
-        </button>
+        <div className="row center">
+          <Button onClick={() => users.fetchNextPage()} loading={users.isFetchingNextPage}>
+            Показать ещё
+          </Button>
+        </div>
       )}
       {selected && <PersonDrawer sub={selected} onClose={close} />}
     </div>
@@ -130,14 +122,14 @@ function PersonCard({ user: u, onOpen }: { user: DirectoryUser; onOpen: () => vo
   const dept = u.attributes.find((a) => a.name === 'department')?.value;
   const job = u.attributes.find((a) => a.name === 'jobTitle')?.value;
   return (
-    <button className={`card person${u.enabled ? '' : ' person-off'}`} onClick={onOpen}>
-      <Avatar url={u.avatarUrl} name={u.name} size={52} />
-      <span className="person-text">
+    <button type="button" className={`person-card${u.enabled ? '' : ' person-off'}`} onClick={onOpen}>
+      <Avatar url={u.avatarUrl} name={u.name} size={48} />
+      <span className="row-text">
         <strong>{u.name}</strong>
         <small>{[job, dept].filter(Boolean).join(' · ') || u.email || u.username}</small>
-        <span className="mono person-login">@{u.username}</span>
+        <small className="mono">@{u.username}</small>
       </span>
-      {!u.enabled && <span className="badge badge-danger">Отключён</span>}
+      {!u.enabled && <Badge tone="error">Отключён</Badge>}
     </button>
   );
 }
@@ -146,9 +138,9 @@ function PersonDrawer({ sub, onClose }: { sub: string; onClose: () => void }) {
   const me = useMe();
   const user = useQuery({ queryKey: ['user', sub], queryFn: () => api.user(sub) });
   return (
-    <Drawer title={user.data?.name ?? 'Пользователь'} onClose={onClose}>
-      {user.isPending && <Skeleton height={240} />}
-      {user.isError && <p className="form-error">{errorMessage(user.error)}</p>}
+    <Drawer open title={user.data?.name ?? 'Пользователь'} onClose={onClose} className="wide-drawer">
+      {user.isPending && <Loading height={240} />}
+      <ErrorAlert error={user.error} />
       {user.isSuccess && <PersonDetail user={user.data} admin={me.isAdmin} />}
     </Drawer>
   );
@@ -156,78 +148,45 @@ function PersonDrawer({ sub, onClose }: { sub: string; onClose: () => void }) {
 
 function PersonDetail({ user: u, admin }: { user: UserDetail; admin: boolean }) {
   return (
-    <div className="person-detail">
+    <div className="stack">
       <div className="person-hero">
-        <Avatar url={u.avatarUrl} name={u.name} size={88} />
+        <Avatar url={u.avatarUrl} name={u.name} size={72} />
         <div>
-          <h3>{u.name}</h3>
-          <p className="mono muted">@{u.username}</p>
-          <div className="chips" style={{ marginTop: 8 }}>
-            {u.self && <span className="badge badge-accent">Это вы</span>}
-            {!u.enabled && <span className="badge badge-danger">Отключён</span>}
-            {admin && u.emailVerified === false && <span className="badge badge-warn">email не подтверждён</span>}
+          <p className="mono hint">@{u.username}</p>
+          <div className="chips">
+            {u.self && <Badge tone="info">Это вы</Badge>}
+            {!u.enabled && <Badge tone="error">Отключён</Badge>}
+            {admin && u.emailVerified === false && <Badge tone="warning">email не подтверждён</Badge>}
           </div>
         </div>
       </div>
-      <dl className="kv">
-        {u.email && (
-          <>
-            <dt>Email</dt>
-            <dd>
-              <a href={`mailto:${u.email}`}>{u.email}</a>
-            </dd>
-          </>
-        )}
-        {u.attributes.map((a) => (
-          <div key={a.name} style={{ display: 'contents' }}>
-            <dt>{attributeLabel(a.name)}</dt>
-            <dd>{a.value}</dd>
-          </div>
-        ))}
-        {u.groups.length > 0 && (
-          <>
-            <dt>Группы</dt>
-            <dd>
-              {u.groups.map((g) => (
-                <span key={g} className="badge mono">
-                  {g}
-                </span>
-              ))}
-            </dd>
-          </>
-        )}
-        {admin && u.roles && u.roles.length > 0 && (
-          <>
-            <dt>Роли</dt>
-            <dd>
-              {u.roles.map((r) => (
-                <span key={r} className="badge badge-accent mono">
-                  {r}
-                </span>
-              ))}
-            </dd>
-          </>
-        )}
-        {admin && u.createdAt && (
-          <>
-            <dt>Создан</dt>
-            <dd>{formatDate(u.createdAt)}</dd>
-          </>
-        )}
-      </dl>
+      <DescriptionList
+        items={[
+          ...(u.email ? [{ id: 'email', term: 'Email', description: <a className="vs-link" href={`mailto:${u.email}`}>{u.email}</a> }] : []),
+          ...u.attributes.map((a) => ({ id: a.name, term: attributeLabel(a.name), description: a.value })),
+          ...(u.groups.length
+            ? [{ id: 'groups', term: 'Группы', description: <span className="chips">{u.groups.map((g) => <Badge key={g}>{g}</Badge>)}</span> }]
+            : []),
+          ...(admin && u.roles?.length
+            ? [{ id: 'roles', term: 'Роли', description: <span className="chips">{u.roles.map((r) => <Badge key={r} tone="info">{r}</Badge>)}</span> }]
+            : []),
+          ...(admin && u.createdAt ? [{ id: 'created', term: 'Создан', description: formatDate(u.createdAt) }] : []),
+        ]}
+      />
       {admin && <AdminControls user={u} />}
     </div>
   );
 }
 
-const emailActionLabels: Record<EmailAction, string> = {
-  UPDATE_PASSWORD: 'Сменить пароль',
-  VERIFY_EMAIL: 'Подтвердить email',
-  CONFIGURE_TOTP: 'Настроить OTP',
-};
+const emailActionOptions: { value: EmailAction; label: string }[] = [
+  { value: 'UPDATE_PASSWORD', label: 'Сменить пароль' },
+  { value: 'VERIFY_EMAIL', label: 'Подтвердить email' },
+  { value: 'CONFIGURE_TOTP', label: 'Настроить OTP' },
+];
 
 function AdminControls({ user: u }: { user: UserDetail }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const sync = (d?: UserDetail) => {
     if (d) queryClient.setQueryData(['user', u.sub], d);
     else void queryClient.invalidateQueries({ queryKey: ['user', u.sub] });
@@ -239,22 +198,25 @@ function AdminControls({ user: u }: { user: UserDetail }) {
     lastName: u.lastName,
     email: u.email,
     attributes: Object.fromEntries(
-      (u.attributeNames ?? u.attributes.map((a) => a.name)).map((name) => [
-        name,
-        u.attributes.find((a) => a.name === name)?.value ?? '',
-      ]),
+      (u.attributeNames ?? u.attributes.map((a) => a.name)).map((name) => [name, u.attributes.find((a) => a.name === name)?.value ?? '']),
     ),
   });
   const sessions = u.sessions ?? [];
   const credentials = u.credentials ?? [];
-  const save = useMutation({ mutationFn: () => api.admin.updateUser(u.sub, form), onSuccess: sync });
-  const toggle = useMutation({
-    mutationFn: () => api.admin.updateUser(u.sub, { enabled: !u.enabled }),
-    onSuccess: sync,
+  const save = useMutation({
+    mutationFn: () => api.admin.updateUser(u.sub, form),
+    onSuccess: (d) => {
+      sync(d);
+      toast({ tone: 'success', title: 'Сохранено' });
+    },
   });
+  const toggle = useMutation({ mutationFn: () => api.admin.updateUser(u.sub, { enabled: !u.enabled }), onSuccess: sync });
   const logout = useMutation({ mutationFn: () => api.admin.logoutUser(u.sub), onSuccess: () => sync() });
-  const [actions, setActions] = useState<EmailAction[]>(['UPDATE_PASSWORD']);
-  const email = useMutation({ mutationFn: () => api.admin.actionsEmail(u.sub, actions) });
+  const [actions, setActions] = useState<string[]>(['UPDATE_PASSWORD']);
+  const email = useMutation({
+    mutationFn: () => api.admin.actionsEmail(u.sub, actions as EmailAction[]),
+    onSuccess: () => toast({ tone: 'success', title: 'Письмо отправлено' }),
+  });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -263,150 +225,102 @@ function AdminControls({ user: u }: { user: UserDetail }) {
 
   return (
     <>
-      <section className="drawer-section">
-        <div className="eyebrow">Данные в Keycloak</div>
-        <form className="form" onSubmit={submit}>
-          <div className="form-row">
-            <label className="field">
-              <span>Имя</span>
-              <input
-                value={form.firstName}
-                onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Фамилия</span>
-              <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} required />
-            </label>
-          </div>
-          <label className="field">
-            <span>Email</span>
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <span className="field-hint">Новый адрес нужно будет подтвердить заново.</span>
-          </label>
-          {Object.keys(form.attributes).map((name) => (
-            <label key={name} className="field">
-              <span>{attributeLabel(name)}</span>
-              <input
-                value={form.attributes[name]}
-                onChange={(e) => setForm({ ...form, attributes: { ...form.attributes, [name]: e.target.value } })}
-              />
-            </label>
-          ))}
-          {save.isError && <p className="form-error">{errorMessage(save.error)}</p>}
-          <div className="form-actions">
-            <button className="btn btn-primary" disabled={save.isPending} aria-busy={save.isPending}>
-              Сохранить
-            </button>
-            {save.isSuccess && (
-              <span className="saved">
-                <CheckCircle2 size={16} /> Сохранено
-              </span>
-            )}
-          </div>
-        </form>
-      </section>
+      <LinkButton to={`/keycloak/users?user=${encodeURIComponent(u.sub)}`}>
+        <KeyRound size={16} />
+        Роли, группы, пароль и всё остальное в Keycloak
+      </LinkButton>
+      <Divider label="Данные" />
+      <form className="stack" onSubmit={submit}>
+        <div className="form-grid">
+          <Input label="Имя" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required />
+          <Input label="Фамилия" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} required />
+        </div>
+        <Input
+          label="Email"
+          hint="Новый адрес нужно будет подтвердить заново."
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+        />
+        {Object.keys(form.attributes).map((name) => (
+          <Input
+            key={name}
+            label={attributeLabel(name)}
+            value={form.attributes[name]}
+            onChange={(e) => setForm({ ...form, attributes: { ...form.attributes, [name]: e.target.value } })}
+          />
+        ))}
+        <ErrorAlert error={save.error} />
+        <div className="row">
+          <Button type="submit" variant="primary" loading={save.isPending}>
+            Сохранить
+          </Button>
+        </div>
+      </form>
 
-      <section className="drawer-section">
-        <div className="eyebrow">Письмо с действиями</div>
+      <Divider label="Письмо с действиями" />
+      <ToggleGroup label="Действия" options={emailActionOptions} value={actions} onValueChange={setActions} />
+      <div className="row">
+        <Button
+          className="with-icon"
+          onClick={() => email.mutate()}
+          disabled={!u.email || actions.length === 0}
+          loading={email.isPending}
+        >
+          <Mail size={16} />
+          Отправить письмо
+        </Button>
+      </div>
+      {!u.email && <p className="hint">У пользователя не указан email.</p>}
+      <ErrorAlert error={email.error} />
+
+      <Divider label="Способы входа" />
+      {credentials.length === 0 ? (
+        <p className="hint">Нет ни одного способа входа.</p>
+      ) : (
         <div className="chips">
-          {(Object.keys(emailActionLabels) as EmailAction[]).map((a) => {
-            const on = actions.includes(a);
-            return (
-              <button
-                key={a}
-                type="button"
-                className={`chip${on ? ' chip-on' : ''}`}
-                aria-pressed={on}
-                onClick={() => setActions(on ? actions.filter((x) => x !== a) : [...actions, a])}
-              >
-                {emailActionLabels[a]}
-              </button>
-            );
-          })}
+          {credentials.map((c) => (
+            <Badge key={c.id}>{c.label ? `${credentialTitle(c).title}: ${c.label}` : credentialTitle(c).title}</Badge>
+          ))}
         </div>
-        <div className="form-actions">
-          <button
-            className="btn"
-            onClick={() => email.mutate()}
-            disabled={!u.email || actions.length === 0 || email.isPending}
-            aria-busy={email.isPending}
-          >
-            <Mail size={16} />
-            Отправить письмо
-          </button>
-          {email.isSuccess && (
-            <span className="saved">
-              <CheckCircle2 size={16} /> Отправлено
-            </span>
-          )}
-        </div>
-        {!u.email && <p className="field-hint">У пользователя не указан email.</p>}
-        {email.isError && <p className="form-error">{errorMessage(email.error)}</p>}
-      </section>
+      )}
 
-      <section className="drawer-section">
-        <div className="eyebrow">Способы входа</div>
-        {credentials.length === 0 ? (
-          <p className="muted">Нет ни одного способа входа.</p>
-        ) : (
-          <div className="chips">
-            {credentials.map((c) => (
-              <span key={c.id} className="badge">
-                {c.label ? `${credentialTitle(c).title}: ${c.label}` : credentialTitle(c).title}
-              </span>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="drawer-section">
-        <div className="eyebrow">Сессии · {sessions.length}</div>
-        {sessions.length === 0 ? (
-          <p className="muted">Активных сессий нет.</p>
-        ) : (
-          <ul className="card rows">
+      <Divider label={`Сессии · ${sessions.length}`} />
+      {sessions.length === 0 ? (
+        <p className="hint">Активных сессий нет.</p>
+      ) : (
+        <Card flat className="list-card">
+          <ul className="rows">
             {sessions.map((s) => (
               <SessionRow key={s.id} session={s} />
             ))}
           </ul>
-        )}
-        <div className="form-actions">
-          <button
-            className="btn"
-            onClick={() => logout.mutate()}
-            disabled={sessions.length === 0 || logout.isPending}
-            aria-busy={logout.isPending}
-          >
-            <LogOut size={16} />
-            Завершить все сессии
-          </button>
-        </div>
-        {logout.isError && <p className="form-error">{errorMessage(logout.error)}</p>}
-      </section>
+        </Card>
+      )}
+      <div className="row">
+        <Button className="with-icon" onClick={() => logout.mutate()} disabled={sessions.length === 0} loading={logout.isPending}>
+          <LogOut size={16} />
+          Завершить все сессии
+        </Button>
+      </div>
+      <ErrorAlert error={logout.error} />
 
       {!u.self && (
-        <section className="drawer-section">
-          <div className="eyebrow">Доступ</div>
-          <p className="muted">
+        <>
+          <Divider label="Доступ" />
+          <p className="hint">
             {u.enabled
               ? 'Отключённый пользователь не сможет войти ни в один сервис; его открытые сессии будут завершены.'
               : 'Учётная запись отключена: вход во все сервисы запрещён.'}
           </p>
-          <div className="form-actions">
-            <button
-              className={u.enabled ? 'btn btn-danger-solid' : 'btn btn-primary'}
-              onClick={() => toggle.mutate()}
-              disabled={toggle.isPending}
-              aria-busy={toggle.isPending}
-            >
+          <div className="row">
+            <Button variant={u.enabled ? 'danger' : 'primary'} className="with-icon" onClick={() => toggle.mutate()} loading={toggle.isPending}>
               <UserRoundX size={16} />
               {u.enabled ? 'Отключить учётную запись' : 'Включить учётную запись'}
-            </button>
+            </Button>
           </div>
-          {toggle.isError && <p className="form-error">{errorMessage(toggle.error)}</p>}
-        </section>
+          <ErrorAlert error={toggle.error} />
+        </>
       )}
     </>
   );

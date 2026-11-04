@@ -11,11 +11,9 @@ export function getTheme(): ThemeChoice {
   }
 }
 
-// applyTheme sets <html data-theme>; "system" removes it so the
-// prefers-color-scheme media query decides.
+// applyTheme sets <html data-theme>; the design system's "auto" follows the OS.
 export function applyTheme(choice: ThemeChoice) {
-  if (choice === 'system') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = choice;
+  document.documentElement.dataset.theme = choice === 'system' ? 'auto' : choice;
 }
 
 export function setTheme(choice: ThemeChoice) {

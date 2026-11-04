@@ -50,8 +50,6 @@ func (c *Config) IssuerURL() string {
 	return strings.TrimRight(c.KeycloakURL, "/") + "/realms/" + url.PathEscape(c.Realm)
 }
 
-func (c *Config) AccountConsoleURL() string { return c.IssuerURL() + "/account" }
-
 func (c *Config) RedirectURL() string { return c.PublicURL + "/auth/callback" }
 
 func Load() (*Config, error) {

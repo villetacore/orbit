@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Camera, Trash2, ZoomIn } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { Alert, Button, Dialog, Slider } from '@villetacore/velessoft-ui';
+import { Camera, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import Cropper, { type Area } from 'react-easy-crop';
 import { api, errorMessage } from '../api';
 import { meQueryKey } from '../auth';
 import { cropImage } from '../lib/cropImage';
 import { Avatar } from './Avatar';
-import { Modal } from './ui';
 
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 const MAX_SOURCE_BYTES = 15 * 1024 * 1024;
@@ -16,8 +16,8 @@ interface Props {
   name: string;
 }
 
-// AvatarEditor shows the avatar with a camera button; picking a file opens a
-// crop dialog, and the cropped square is uploaded.
+// AvatarEditor shows the avatar with its actions; picking a file opens a crop
+// dialog, and the cropped square is uploaded.
 export function AvatarEditor({ url, name }: Props) {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -57,8 +57,6 @@ export function AvatarEditor({ url, name }: Props) {
     onError: (err) => setError(errorMessage(err)),
   });
 
-  const close = useCallback(() => setSource(null), []);
-
   function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -77,81 +75,58 @@ export function AvatarEditor({ url, name }: Props) {
     setSource(URL.createObjectURL(file));
   }
 
-  const pick = () => inputRef.current?.click();
-
   return (
     <>
-      <div className="avatar-edit">
-        <Avatar url={url} name={name} size={112} />
-        <button className="camera" onClick={pick} aria-label={url ? 'Заменить фото' : 'Загрузить фото'} title="Изменить фото">
-          <Camera size={16} />
-        </button>
-      </div>
+      <Avatar url={url} name={name} size={112} />
       <input ref={inputRef} type="file" accept={ACCEPTED.join(',')} hidden onChange={onFile} />
-
-      {url && (
-        <div className="identity-actions">
-          <button className="btn btn-sm" onClick={pick}>
-            Заменить
-          </button>
-          <button className="btn btn-sm btn-ghost btn-danger" onClick={() => remove.mutate()} disabled={remove.isPending}>
+      <div className="row">
+        <Button size="sm" className="with-icon" onClick={() => inputRef.current?.click()}>
+          <Camera size={14} />
+          {url ? 'Заменить' : 'Загрузить фото'}
+        </Button>
+        {url && (
+          <Button size="sm" variant="ghost" className="with-icon" onClick={() => remove.mutate()} loading={remove.isPending}>
             <Trash2 size={14} />
             Удалить
-          </button>
-        </div>
-      )}
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      ) : (
-        !url && <p className="field-hint">PNG, JPEG или WebP от 64×64 px</p>
-      )}
+          </Button>
+        )}
+      </div>
+      {error && <Alert tone="error">{error}</Alert>}
 
       {source && (
-        <Modal
+        <Dialog
+          open
           title="Кадрирование фото"
-          onClose={close}
+          onClose={() => setSource(null)}
           footer={
             <>
-              <button className="btn btn-ghost" onClick={close} disabled={upload.isPending}>
+              <Button variant="ghost" onClick={() => setSource(null)} disabled={upload.isPending}>
                 Отмена
-              </button>
-              <button className="btn btn-primary" onClick={() => upload.mutate()} disabled={upload.isPending || !area}>
-                {upload.isPending ? 'Сохранение…' : 'Сохранить фото'}
-              </button>
+              </Button>
+              <Button variant="primary" onClick={() => upload.mutate()} loading={upload.isPending} disabled={!area}>
+                Сохранить фото
+              </Button>
             </>
           }
         >
-          <div className="cropper">
-            <Cropper
-              image={source}
-              crop={crop}
-              zoom={zoom}
-              aspect={1}
-              cropShape="round"
-              showGrid={false}
-              onCropChange={setCrop}
-              onZoomChange={setZoom}
-              onCropComplete={(_, pixels) => setArea(pixels)}
-            />
+          <div className="stack">
+            <div className="cropper">
+              <Cropper
+                image={source}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                cropShape="round"
+                showGrid={false}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={(_, pixels) => setArea(pixels)}
+              />
+            </div>
+            <Slider label="Масштаб" min={1} max={3} step={0.01} value={zoom} onChange={setZoom} />
+            <p className="hint">Фото увидят коллеги и другие корпоративные сервисы.</p>
           </div>
-          <label className="zoom">
-            <ZoomIn size={16} />
-            <span className="sr-only">Масштаб</span>
-            <input
-              type="range"
-              min={1}
-              max={3}
-              step={0.01}
-              value={zoom}
-              onChange={(e) => setZoom(Number(e.target.value))}
-            />
-          </label>
-          <p className="field-hint" style={{ padding: '4px 24px 16px' }}>
-            Фото увидят коллеги и другие корпоративные сервисы.
-          </p>
-        </Modal>
+        </Dialog>
       )}
     </>
   );

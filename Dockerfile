@@ -3,6 +3,8 @@
 FROM node:24-alpine AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
+# The design system is installed from packed archives until it is on npm.
+COPY frontend/vendor ./vendor
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build

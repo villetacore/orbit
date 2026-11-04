@@ -30,10 +30,52 @@ export type BrandingInput = Omit<Branding, 'faviconUrl' | 'logoUrl'>;
 export type BrandingAsset = 'favicon' | 'logo';
 
 export interface PublicConfig {
-  accountConsoleUrl: string;
-  securityLinks: Record<'signingIn' | 'deviceActivity' | 'linkedAccounts' | 'applications', string>;
   actions: string[];
   registrationEnabled: boolean;
+}
+
+export interface PasswordLoginInput {
+  username: string;
+  password: string;
+  otp?: string;
+  newPassword?: string;
+}
+
+// Proof of identity for sensitive account changes.
+export interface Reauth {
+  currentPassword: string;
+  otp?: string;
+}
+
+export interface TOTPSetup {
+  setupToken: string;
+  secret: string;
+  uri: string;
+  qrImage: string;
+  digits: number;
+  period: number;
+  algorithm: string;
+}
+
+export interface LinkedAccount {
+  alias: string;
+  displayName: string;
+  linked: boolean;
+  userName: string;
+}
+
+export interface Consent {
+  clientId: string;
+  scopes: string[];
+  updatedAt: string | null;
+}
+
+export interface LoginEvent {
+  time: string;
+  type: string;
+  client: string;
+  ipAddress: string;
+  error: string;
 }
 
 export interface ProfileAttribute {
@@ -230,17 +272,17 @@ export async function request<T>(method: string, path: string, body?: unknown): 
     }
     throw new ApiError(res.status, data.error ?? 'error', data.message ?? res.statusText);
   }
-  if (res.status === 204) {
-    return undefined as T;
-  }
-  return (await res.json()) as T;
+  // Keycloak answers 201 and 204 with an empty body.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {
   me: () => request<Me>('GET', '/api/me'),
   config: () => request<PublicConfig>('GET', '/api/config'),
   branding: () => request<Branding>('GET', '/api/branding'),
-  logout: () => request<{ redirectUrl: string }>('POST', '/auth/logout'),
+  login: (input: PasswordLoginInput) => request<void>('POST', '/auth/password', input),
+  logout: () => request<void>('POST', '/auth/logout'),
   register: (input: RegistrationInput) => request<{ status: 'pending' }>('POST', '/api/register', input),
 
   profile: () => request<Profile>('GET', '/api/profile'),
@@ -260,6 +302,23 @@ export const api = {
   endSession: (id: string) => request<void>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
   endOtherSessions: () => request<{ ended: number }>('POST', '/api/account/sessions/end-others'),
   credentials: () => request<{ credentials: Credential[] }>('GET', '/api/account/credentials'),
+  changePassword: (input: Reauth & { newPassword: string; logoutOthers: boolean }) =>
+    request<{ endedSessions: number }>('POST', '/api/account/password', input),
+  changeEmail: (input: Reauth & { email: string }) =>
+    request<{ email: string; verification: 'sent' | 'failed' | 'unchanged' }>('POST', '/api/account/email', input),
+  sendVerifyEmail: () => request<void>('POST', '/api/account/verify-email'),
+  totpSetup: () => request<TOTPSetup>('POST', '/api/account/totp/setup'),
+  totpConfirm: (input: Reauth & { setupToken: string; code: string; label: string }) =>
+    request<void>('POST', '/api/account/totp', input),
+  deleteCredential: (id: string, input: Reauth) =>
+    request<void>('POST', `/api/account/credentials/${encodeURIComponent(id)}/delete`, input),
+  renameCredential: (id: string, label: string) =>
+    request<void>('PUT', `/api/account/credentials/${encodeURIComponent(id)}/label`, { label }),
+  linkedAccounts: () => request<{ accounts: LinkedAccount[] }>('GET', '/api/account/linked'),
+  unlinkAccount: (alias: string) => request<void>('DELETE', `/api/account/linked/${encodeURIComponent(alias)}`),
+  consents: () => request<{ consents: Consent[] }>('GET', '/api/account/consents'),
+  revokeConsent: (client: string) => request<void>('DELETE', `/api/account/consents/${encodeURIComponent(client)}`),
+  loginEvents: () => request<{ events: LoginEvent[] }>('GET', '/api/account/events'),
 
   users: (q: string, page: number) =>
     request<{ users: DirectoryUser[]; hasMore: boolean }>('GET', `/api/users?q=${encodeURIComponent(q)}&page=${page}`),
@@ -294,8 +353,32 @@ export const api = {
   },
 };
 
-export function loginUrl(returnTo = window.location.pathname + window.location.search): string {
+// ssoLoginUrl is the browser flow through Keycloak's own pages, for what Orbit's
+// form cannot do: passkeys, external providers, pending required actions.
+export function ssoLoginUrl(returnTo = '/'): string {
   return `/auth/login?return_to=${encodeURIComponent(returnTo)}`;
+}
+
+// safeReturnTo keeps post-login navigation on this origin.
+export function safeReturnTo(raw: string | null): string | null {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || /[\\\r\n\t]/.test(raw)) return null;
+  return raw;
+}
+
+// Admin REST API of the realm, passed through by Orbit's backend.
+export const kc = {
+  get: <T>(path: string) => request<T>('GET', `/api/admin/keycloak${path}`),
+  post: <T = void>(path: string, body?: unknown) => request<T>('POST', `/api/admin/keycloak${path}`, body),
+  put: <T = void>(path: string, body?: unknown) => request<T>('PUT', `/api/admin/keycloak${path}`, body),
+  del: <T = void>(path: string, body?: unknown) => request<T>('DELETE', `/api/admin/keycloak${path}`, body),
+  serverInfo: () => request<KeycloakServerInfo>('GET', '/api/admin/keycloak-serverinfo'),
+};
+
+export interface KeycloakServerInfo {
+  themes: Record<string, { name: string }[]>;
+  passwordPolicies: { id: string; displayName: string; defaultValue: string; multipleSupported: boolean }[];
+  enums?: Record<string, string[]>;
+  [key: string]: unknown;
 }
 
 export function errorMessage(err: unknown): string {

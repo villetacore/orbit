@@ -44,14 +44,14 @@ func TestAccountCredentials(t *testing.T) {
 	}
 }
 
-func TestDeleteCredentialAction(t *testing.T) {
+func TestAccountLinkAction(t *testing.T) {
 	h := newHarness(t)
-	resp := h.do("GET", "/auth/action/delete_credential:c-otp", nil, nil)
-	if resp.StatusCode != http.StatusFound || h.oidc.lastExtra["kc_action"] != "delete_credential:c-otp" {
+	resp := h.do("GET", "/auth/action/idp_link:github", nil, nil)
+	if resp.StatusCode != http.StatusFound || h.oidc.lastExtra["kc_action"] != "idp_link:github" {
 		t.Fatalf("status %d extra %v", resp.StatusCode, h.oidc.lastExtra)
 	}
-	if resp := h.do("GET", "/auth/action/delete_credential:a%26b", nil, nil); resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("bad id: %d", resp.StatusCode)
+	if resp := h.do("GET", "/auth/action/idp_link:a%26b", nil, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad alias: %d", resp.StatusCode)
 	}
 }
 

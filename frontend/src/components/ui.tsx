@@ -1,5 +1,8 @@
-import { Moon, Sun, SunMoon, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Alert, Button, Input, PasswordInput, Skeleton, type ButtonVariant } from '@villetacore/velessoft-ui';
+import { Moon, Sun, SunMoon, type LucideIcon } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router';
+import { errorMessage } from '../api';
 import { useBranding } from '../branding';
 import { getTheme, setTheme, type ThemeChoice } from '../lib/theme';
 
@@ -57,9 +60,11 @@ export function ThemeSwitch() {
   const [theme, setChoice] = useState<ThemeChoice>(getTheme);
   const { label, icon: Icon } = themeInfo[theme];
   return (
-    <button
-      type="button"
-      className="theme-switch"
+    <Button
+      variant="ghost"
+      size="sm"
+      block
+      className="with-icon"
       onClick={() => {
         const next = themeOrder[(themeOrder.indexOf(theme) + 1) % themeOrder.length]!;
         setTheme(next);
@@ -67,9 +72,9 @@ export function ThemeSwitch() {
       }}
       aria-label={`${label}. Переключить`}
     >
-      <Icon size={18} />
+      <Icon size={16} />
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -87,101 +92,81 @@ export function Brand({ markSize }: { markSize?: number }) {
   );
 }
 
-export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
-  return (
-    <header className="page-header">
-      <div>
-        <h1>{title}</h1>
-        {description && <p>{description}</p>}
-      </div>
-      {actions}
-    </header>
-  );
-}
-
-export function EmptyState({
-  icon: Icon,
-  title,
-  text,
-  action,
+// LinkButton is a router link that looks like the design system's Button.
+export function LinkButton({
+  to,
+  variant = 'secondary',
+  size,
+  children,
 }: {
-  icon: LucideIcon;
-  title: string;
-  text?: string;
-  action?: ReactNode;
+  to: string;
+  variant?: ButtonVariant;
+  size?: 'sm' | 'lg';
+  children: ReactNode;
 }) {
   return (
-    <div className="empty">
-      <span className="empty-icon">
-        <Icon size={20} />
-      </span>
-      <h3>{title}</h3>
-      {text && <p>{text}</p>}
-      {action}
-    </div>
+    <Link to={to} className={`vs-button vs-${variant}${size ? ` vs-${size}` : ''} with-icon`}>
+      {children}
+    </Link>
   );
 }
 
-export function Skeleton({ height, count = 1 }: { height: number; count?: number }) {
+export function ErrorAlert({ error, title }: { error: unknown; title?: string }) {
+  if (error === null || error === undefined) return null;
+  return (
+    <Alert tone="error" title={title}>
+      {errorMessage(error)}
+    </Alert>
+  );
+}
+
+export function Loading({ height = 200, count = 1 }: { height?: number; count?: number }) {
   return (
     <>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="skeleton" style={{ height }} aria-hidden="true" />
+        <Skeleton key={i} height={height} />
       ))}
     </>
   );
 }
 
-function useEscape(onClose: () => void) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-}
-
-interface OverlayProps {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-  footer?: ReactNode;
-}
-
-function OverlayHead({ title, onClose }: { title: string; onClose: () => void }) {
-  return (
-    <div className="overlay-head">
-      <h2>{title}</h2>
-      <button className="icon-btn" onClick={onClose} aria-label="Закрыть" type="button">
-        <X size={18} />
-      </button>
-    </div>
-  );
-}
-
-export function Modal({ title, onClose, children, footer }: OverlayProps) {
-  useEscape(onClose);
+// ReauthFields ask for the current password (and one-time code, if the user has
+// one) before a sensitive change.
+export function ReauthFields({
+  password,
+  otp,
+  onPassword,
+  onOtp,
+  hasOtp,
+}: {
+  password: string;
+  otp: string;
+  onPassword: (v: string) => void;
+  onOtp: (v: string) => void;
+  hasOtp: boolean;
+}) {
   return (
     <>
-      <div className="overlay" onClick={onClose} />
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
-        <OverlayHead title={title} onClose={onClose} />
-        {children}
-        {footer && <div className="overlay-foot">{footer}</div>}
-      </div>
-    </>
-  );
-}
-
-export function Drawer({ title, onClose, children, footer }: OverlayProps) {
-  useEscape(onClose);
-  return (
-    <>
-      <div className="overlay" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={title}>
-        <OverlayHead title={title} onClose={onClose} />
-        <div className="drawer-body">{children}</div>
-        {footer && <div className="overlay-foot">{footer}</div>}
-      </aside>
+      <PasswordInput
+        label="Текущий пароль"
+        showLabel="Показать"
+        hideLabel="Скрыть"
+        value={password}
+        onChange={(e) => onPassword(e.target.value)}
+        autoComplete="current-password"
+        required
+      />
+      {hasOtp && (
+        <Input
+          label="Код подтверждения"
+          value={otp}
+          onChange={(e) => onOtp(e.target.value)}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          hint="Из приложения-аутентификатора."
+          required
+        />
+      )}
     </>
   );
 }
