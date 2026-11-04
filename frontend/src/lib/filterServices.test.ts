@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CatalogService } from '../api';
+import type { CatalogService } from '@/api';
 import { filterServices } from './filterServices';
 import { initials } from './format';
 

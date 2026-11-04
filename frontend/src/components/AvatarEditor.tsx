@@ -3,9 +3,9 @@ import { Alert, Button, Dialog, Slider } from '@villetacore/velessoft-ui';
 import { Camera, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import Cropper, { type Area } from 'react-easy-crop';
-import { api, errorMessage } from '../api';
-import { meQueryKey } from '../auth';
-import { cropImage } from '../lib/cropImage';
+import { api, errorMessage } from '@/api';
+import { meQueryKey } from '@/auth';
+import { cropImage } from '@/lib/cropImage';
 import { Avatar } from './Avatar';
 
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];

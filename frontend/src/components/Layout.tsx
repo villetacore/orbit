@@ -12,12 +12,14 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router';
-import { api } from '../api';
-import { useMe } from '../auth';
-import { useBranding } from '../branding';
+import { useEffect, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { api } from '@/api';
+import { useMe } from '@/auth';
+import { useBranding } from '@/branding';
 import { Avatar } from './Avatar';
+import { NavLink } from './NavLink';
 import { Brand, Signature, ThemeSwitch } from './ui';
 
 function Navigation({ pendingCount }: { pendingCount: number }) {
@@ -34,7 +36,7 @@ function Navigation({ pendingCount }: { pendingCount: number }) {
       <ul className="vs-nav-list">
         {links.map(({ to, label, icon: Icon, end }) => (
           <li key={to}>
-            <NavLink to={to} end={end} className="nav-link">
+            <NavLink href={to} exact={end} className="nav-link">
               <Icon size={16} />
               <span>{label}</span>
             </NavLink>
@@ -46,7 +48,7 @@ function Navigation({ pendingCount }: { pendingCount: number }) {
           <div className="nav-section">/ управление</div>
           <ul className="vs-nav-list">
             <li>
-              <NavLink to="/admin" className="nav-link">
+              <NavLink href="/admin" className="nav-link">
                 <Settings2 size={16} />
                 <span>Администрирование</span>
                 {pendingCount > 0 && (
@@ -57,7 +59,7 @@ function Navigation({ pendingCount }: { pendingCount: number }) {
               </NavLink>
             </li>
             <li>
-              <NavLink to="/keycloak" className="nav-link">
+              <NavLink href="/keycloak" className="nav-link">
                 <KeyRound size={16} />
                 <span>Keycloak</span>
               </NavLink>
@@ -69,11 +71,11 @@ function Navigation({ pendingCount }: { pendingCount: number }) {
   );
 }
 
-export function Layout() {
+export function Layout({ children }: { children: ReactNode }) {
   const me = useMe();
   const branding = useBranding();
   const support = branding.supportUrl || (branding.supportEmail && `mailto:${branding.supportEmail}`);
-  const { pathname } = useLocation();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const logout = useMutation({
     mutationFn: api.logout,
@@ -101,13 +103,13 @@ export function Layout() {
         </a>
       )}
       <div className="user-card">
-        <NavLink to="/profile" className="user-card-link">
+        <Link href="/profile" className="user-card-link">
           <Avatar url={me.avatarUrl} name={displayName} size={36} />
           <span className="user-card-text">
             <strong>{displayName}</strong>
             <small>{me.email || me.username}</small>
           </span>
-        </NavLink>
+        </Link>
         <IconButton label="Выйти" variant="ghost" onClick={() => logout.mutate()} disabled={logout.isPending}>
           <LogOut size={16} />
         </IconButton>
@@ -119,9 +121,9 @@ export function Layout() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <NavLink to="/" className="brand" aria-label={`${branding.appName} — на главную`}>
+        <Link href="/" className="brand" aria-label={`${branding.appName} — на главную`}>
           <Brand />
-        </NavLink>
+        </Link>
         <Navigation pendingCount={pendingCount} />
         {foot}
       </aside>
@@ -136,15 +138,15 @@ export function Layout() {
           <IconButton label="Открыть меню" variant="ghost" onClick={() => setOpen(true)}>
             <Menu size={18} />
           </IconButton>
-          <NavLink to="/" className="brand">
+          <Link href="/" className="brand">
             <Brand markSize={16} />
-          </NavLink>
-          <NavLink to="/profile" aria-label="Профиль">
+          </Link>
+          <Link href="/profile" aria-label="Профиль">
             <Avatar url={me.avatarUrl} name={displayName} size={30} />
-          </NavLink>
+          </Link>
         </header>
         <main className="content">
-          <Outlet />
+          {children}
         </main>
       </div>
     </div>

@@ -1,10 +1,10 @@
 import { Alert, Button, Input, PasswordInput, Skeleton, type ButtonVariant } from '@villetacore/velessoft-ui';
 import { Moon, Sun, SunMoon, type LucideIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
-import { errorMessage } from '../api';
-import { useBranding } from '../branding';
-import { getTheme, setTheme, type ThemeChoice } from '../lib/theme';
+import Link from 'next/link';
+import { errorMessage } from '@/api';
+import { useBranding } from '@/branding';
+import { getTheme, setTheme, type ThemeChoice } from '@/lib/theme';
 
 export function BrandMark({ size = 18 }: { size?: number }) {
   return (
@@ -105,7 +105,7 @@ export function LinkButton({
   children: ReactNode;
 }) {
   return (
-    <Link to={to} className={`vs-button vs-${variant}${size ? ` vs-${size}` : ''} with-icon`}>
+    <Link href={to} className={`vs-button vs-${variant}${size ? ` vs-${size}` : ''} with-icon`}>
       {children}
     </Link>
   );

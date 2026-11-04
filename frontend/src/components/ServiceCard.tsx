@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge, Card, IconButton } from '@villetacore/velessoft-ui';
 import { ArrowUpRight, Star } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
-import { api, type CatalogService } from '../api';
-import { hueFor, initials } from '../lib/format';
+import { api, type CatalogService } from '@/api';
+import { hueFor, initials } from '@/lib/format';
 
 export const servicesQueryKey = ['services'] as const;
 

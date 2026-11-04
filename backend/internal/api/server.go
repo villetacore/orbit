@@ -6,9 +6,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -210,7 +207,7 @@ func (s *Server) routes() http.Handler {
 	})
 
 	if s.cfg.StaticDir != "" {
-		r.NotFound(spaHandler(s.cfg.StaticDir))
+		r.NotFound(staticHandler(s.cfg.StaticDir, s.log))
 	}
 	return r
 }
@@ -228,24 +225,6 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Write([]byte("ok")) //nolint:errcheck
-}
-
-// spaHandler serves the built frontend and falls back to index.html for
-// client-side routes.
-func spaHandler(dir string) http.HandlerFunc {
-	files := http.FileServer(http.Dir(dir))
-	return func(w http.ResponseWriter, r *http.Request) {
-		p := filepath.Join(dir, filepath.FromSlash(filepath.Clean("/"+r.URL.Path)))
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			if strings.HasPrefix(r.URL.Path, "/assets/") {
-				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			}
-			files.ServeHTTP(w, r)
-			return
-		}
-		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeFile(w, r, filepath.Join(dir, "index.html"))
-	}
 }
 
 func (s *Server) requestLogger(next http.Handler) http.Handler {
@@ -266,8 +245,7 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
-			"img-src 'self' data: blob: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")

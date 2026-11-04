@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { api, type Branding } from './api';
-import { isHexColor, linkColors, readableOn } from './lib/color';
+import { isHexColor, linkColors, readableOn } from '@/lib/color';
 
 export const brandingQueryKey = ['branding'] as const;
 

@@ -2,8 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Spinner } from '@villetacore/velessoft-ui';
 import { createContext, useContext, type ReactNode } from 'react';
 import { ApiError, api, errorMessage, setCsrfToken, type Me } from './api';
-import { BrandMark } from './components/ui';
-import { Landing } from './pages/Landing';
+import { BrandMark } from '@/components/ui';
+import { Landing } from '@/components/landing/Landing';
 
 const MeContext = createContext<Me | null>(null);
 

@@ -19,7 +19,7 @@ api: ## Run the Go API on :8080 with backend/.env
 	cd backend && test -f .env || cp .env.example .env
 	cd backend && set -a && . ./.env && set +a && go run ./cmd/orbit
 
-web: ## Run the Vite dev server on :5173 (proxies /api, /auth, /go to :8080)
+web: ## Run the Next.js dev server on :5173 (proxies /api, /auth, /go to :8080)
 	cd frontend && npm install && npm run dev
 
 test:

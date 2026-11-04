@@ -1,4 +1,4 @@
-import { hueFor, initials } from '../lib/format';
+import { hueFor, initials } from '@/lib/format';
 import type { CSSProperties } from 'react';
 
 interface Props {

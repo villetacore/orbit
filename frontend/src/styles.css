@@ -7,6 +7,8 @@
 /* Branding set by an administrator overrides the identity colors. */
 :root,
 [data-theme] {
+  --vs-font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --vs-font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   --vs-primary: var(--brand-accent, #b8ef65);
   --vs-on-primary: var(--on-brand-accent, #171b24);
   --vs-accent: var(--brand-primary, #8b7cf6);

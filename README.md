@@ -4,7 +4,7 @@
 
 Персональный портал сотрудника поверх Keycloak: профиль, аватар, каталог корпоративных сервисов с переходом по SSO, каталог коллег, вход прямо на сайте, все настройки своего аккаунта и всего realm Keycloak из одного интерфейса, регистрация по заявке с одобрением администратором и административная панель. Keycloak остаётся единственным Identity Provider: Orbit не хранит пароли и не реализует собственную аутентификацию.
 
-Стек: **Go** (API, BFF) + **React / TypeScript** (Vite) + **PostgreSQL** + **Keycloak 26**; аватары — локальная ФС или S3-совместимое хранилище.
+Стек: **Go** (API, BFF) + **Next.js / TypeScript** (статический экспорт) + **PostgreSQL** + **Keycloak 26**; аватары — локальная ФС или S3-совместимое хранилище.
 
 ![Главная страница Orbit](docs/screenshots/dashboard.jpg)
 
@@ -33,7 +33,7 @@
 ```
 Браузер ──(cookie сессии, CSRF-токен)──► Orbit API (Go) ──password grant──► Keycloak
    │                                       │   └─ Admin REST API (service account)
-   └─ React SPA (статикой из Go или Vite)  ├─► PostgreSQL: каталог, избранное, аватары, сессии, аудит
+   └─ Next.js (статикой из Go или next dev)  ├─► PostgreSQL: каталог, избранное, аватары, сессии, аудит
                                            └─► Avatar storage: ФС или S3
 ```
 
@@ -53,7 +53,7 @@
 
 | Вопрос | Решение в MVP |
 |---|---|
-| Frontend / backend / СУБД | React + TS (Vite), Go (chi, go-oidc, pgx), PostgreSQL 17 |
+| Frontend / backend / СУБД | Next.js + TS (static export), Go (chi, go-oidc, pgx), PostgreSQL 17 |
 | Хранение аватаров | ФС для разработки, S3-совместимое (MinIO, Ceph, AWS) для продакшена |
 | Realm | Один realm (`ORBIT_KEYCLOAK_REALM`) |
 | Кто управляет каталогом | Пользователи с ролью `orbit-admin` (`ORBIT_ADMIN_ROLE`) |
@@ -74,7 +74,7 @@ make api     # Go API на :8080 (создаст backend/.env из .env.example)
 ```
 
 ```bash
-make web     # Vite на :5173, проксирует /api, /auth и /go на :8080
+make web     # Next.js на :5173, проксирует /api, /auth и /go на :8080
 ```
 
 Откройте http://localhost:5173 и войдите:
@@ -86,7 +86,7 @@ make web     # Vite на :5173, проксирует /api, /auth и /go на :80
 
 Консоль Keycloak: http://localhost:8081 (`admin` / `admin`).
 
-Всё в контейнерах, одним образом (SPA отдаёт Go): `docker compose --profile app up -d --build`, затем http://localhost:8080.
+Всё в контейнерах, одним образом (экспорт Next.js отдаёт Go): `docker compose --profile app up -d --build`, затем http://localhost:8080.
 
 ## Kubernetes и Helm
 
@@ -169,7 +169,7 @@ helm test orbit -n orbit
 | `ORBIT_AVATAR_MAX_BYTES` | Лимит размера загружаемого файла (по умолчанию 5 МБ) |
 | `ORBIT_COOKIE_SECURE` | По умолчанию `true`, если `ORBIT_PUBLIC_URL` на https |
 | `ORBIT_TRUST_PROXY` | Брать IP клиента из `X-Forwarded-For` (только за доверенным прокси) |
-| `ORBIT_STATIC_DIR` | Каталог собранного фронтенда; Go отдаёт SPA с fallback на `index.html` |
+| `ORBIT_STATIC_DIR` | Каталог статического экспорта Next.js (`frontend/out`); Go отдаёт его страницы, а на неизвестные пути — `404.html` |
 | `ORBIT_SEED_DEMO` | Заполнить пустой каталог демо-сервисами |
 | `ORBIT_REGISTRATION_ENABLED` | Регистрация по заявке с одобрением администратором (по умолчанию `false`) |
 
@@ -234,7 +234,7 @@ helm test orbit -n orbit
 | `GET /api/admin/audit?limit=&before=` | Журнал аудита (`orbit-admin`) |
 | `GET /healthz`, `GET /readyz` | Liveness и readiness (с проверкой PostgreSQL) |
 
-Запросы, меняющие состояние, требуют заголовок `X-CSRF-Token` (из `/api/me`) и, если браузер передал `Origin`, совпадение с `ORBIT_PUBLIC_URL`. CORS не включается: SPA и API работают на одном origin.
+Запросы, меняющие состояние, требуют заголовок `X-CSRF-Token` (из `/api/me`) и, если браузер передал `Origin`, совпадение с `ORBIT_PUBLIC_URL`. CORS не включается: фронтенд и API работают на одном origin.
 
 ## Безопасность
 
@@ -242,7 +242,7 @@ helm test orbit -n orbit
 - Сессия пересоздаётся при каждом входе (защита от fixation); `return_to` принимает только относительные пути (нет open redirect).
 - URL сервисов и иконок — только абсолютные `http(s)` без учётных данных (нет `javascript:`-ссылок); доступ к сервисам и избранному проверяется на сервере, недоступные сервисы для пользователя неотличимы от несуществующих.
 - Rate limiting по IP: `/auth/*`, проверка пароля (отдельный более строгий лимит), загрузка аватаров, все изменяющие запросы. Ответ формы входа не раскрывает, существует ли логин, отключён ли он и включена ли у него 2FA. Пароли не логируются и не хранятся в Orbit; форма принимает только JSON с корректным `Origin`.
-- Заголовки: CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, HSTS на https.
+- Заголовки: CSP (inline-скрипты Next.js разрешены только по sha256-хешам конкретной страницы, без `unsafe-inline`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, HSTS на https.
 - Токены Keycloak, включая административные, никогда не попадают в браузер. Прокси Admin API не выходит за пределы realm: запрещены кодированные разделители и `..`, а первый сегмент пути проверяется по списку ресурсов. Тела запросов в журнал не пишутся.
 
 Что остаётся на эксплуатацию: TLS на входе, секреты через secret manager, резервное копирование PostgreSQL и хранилища аватаров, метрики.
@@ -267,8 +267,9 @@ backend/
   internal/store/       PostgreSQL, миграции, in-memory реализация для тестов
   internal/seal/        AES-GCM и случайные токены
 frontend/src/
-  pages/                Главная, Сервисы, Профиль, Безопасность, Администрирование
-  pages/keycloak/       настройки realm: пользователи, клиенты, потоки, REST-консоль
+  app/                  страницы Next.js (App Router): Главная, Сервисы, Профиль, Безопасность, Администрирование
+  app/(portal)/keycloak/  маршруты разделов Keycloak
+  components/keycloak/  настройки realm: пользователи, клиенты, потоки, REST-консоль
   components/           Layout, Avatar, AvatarEditor (кадрирование), ServiceCard
   branding.tsx          загрузка оформления: заголовок, фавикон, CSS-переменные цветов
 frontend/vendor/        собранные пакеты Velessoft UI 0.4

@@ -1,4 +1,4 @@
-import type { CatalogService } from '../api';
+import type { CatalogService } from '@/api';
 
 export interface ServiceFilter {
   query: string;
