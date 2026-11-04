@@ -92,7 +92,7 @@ make web     # Vite на :5173, проксирует /api, /auth и /go на :80
 
 Helm-чарт лежит в [deploy/helm/orbit](deploy/helm/orbit). Keycloak и PostgreSQL чарт не разворачивает — Orbit подключается к уже существующим.
 
-Образ публикуется workflow [release.yml](.github/workflows/release.yml) в `ghcr.io/villetacore/orbit` (multi-arch, `linux/amd64` и `linux/arm64`): ветка `main` → тег `main` и `sha-…`, тег `vX.Y.Z` → `X.Y.Z` и `X.Y`, а сам чарт — OCI-артефактом в `oci://ghcr.io/villetacore/charts/orbit`.
+Образ публикуется job `publish` в workflow [ci.yml](.github/workflows/ci.yml) только после успешных проверок, в `ghcr.io/villetacore/orbit` (multi-arch, `linux/amd64` и `linux/arm64`): ветка `main` → тег `main` и `sha-…`, тег `vX.Y.Z` → `X.Y.Z` и `X.Y`, а сам чарт — OCI-артефактом в `oci://ghcr.io/villetacore/charts/orbit`.
 
 1. Секреты — лучше отдельным Secret (External Secrets, Sealed Secrets, Vault) с ключами `databaseUrl`, `sessionSecret` (≥ 32 символов), `oidcClientSecret`, `keycloakAdminClientSecret`, а для S3 ещё `s3AccessKey`, `s3SecretKey`:
 
