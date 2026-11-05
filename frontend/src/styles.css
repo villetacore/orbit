@@ -237,6 +237,17 @@ a.vs-button {
   font: 11px var(--vs-font-mono);
   color: var(--vs-muted);
 }
+.sidebar-signature {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.app-version {
+  font: 10px var(--vs-font-mono);
+  color: var(--vs-muted);
+  opacity: 0.6;
+}
 .main {
   min-width: 0;
 }

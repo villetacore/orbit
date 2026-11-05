@@ -314,6 +314,7 @@ type meResponse struct {
 	IsAdmin   bool     `json:"isAdmin"`
 	AvatarURL string   `json:"avatarUrl"`
 	CSRFToken string   `json:"csrfToken"`
+	Version   string   `json:"version"`
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -329,6 +330,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		IsAdmin:   c.HasRole(s.cfg.AdminRole),
 		AvatarURL: s.avatarURLFor(r, c.Subject),
 		CSRFToken: sess.CSRFToken,
+		Version:   s.version,
 	})
 }
 

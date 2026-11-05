@@ -60,6 +60,7 @@ type Keycloak interface {
 
 type Deps struct {
 	Config   *config.Config
+	Version  string // shown to signed-in users
 	OIDC     OIDC
 	Sessions *auth.Manager
 	Sealer   *seal.Sealer
@@ -74,6 +75,7 @@ type Deps struct {
 
 type Server struct {
 	cfg      *config.Config
+	version  string
 	oidc     OIDC
 	sessions *auth.Manager
 	sealer   *seal.Sealer
@@ -93,6 +95,7 @@ type Server struct {
 func New(d Deps) http.Handler {
 	s := &Server{
 		cfg:      d.Config,
+		version:  d.Version,
 		oidc:     d.OIDC,
 		sessions: d.Sessions,
 		sealer:   d.Sealer,

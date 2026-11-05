@@ -12,6 +12,7 @@ export interface Me {
   isAdmin: boolean;
   avatarUrl: string;
   csrfToken: string;
+  version: string;
 }
 
 export interface Branding {

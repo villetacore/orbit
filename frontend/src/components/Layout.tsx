@@ -114,7 +114,10 @@ export function Layout({ children }: { children: ReactNode }) {
           <LogOut size={16} />
         </IconButton>
       </div>
-      <Signature />
+      <div className="sidebar-signature">
+        <Signature />
+        <span className="app-version">{/^\d/.test(me.version) ? `v${me.version}` : me.version}</span>
+      </div>
     </div>
   );
 

@@ -377,6 +377,7 @@ func newHarness(t *testing.T, roles ...string) *harness {
 	}
 	handler := New(Deps{
 		Config:   cfg,
+		Version:  "1.2.3",
 		OIDC:     h.oidc,
 		Sessions: auth.NewManager(auth.NewMemoryRepo(), sealer, time.Hour),
 		Sealer:   sealer,
@@ -850,5 +851,15 @@ func TestReadyz(t *testing.T) {
 	h := newHarness(t)
 	if r := h.do("GET", "/readyz", nil, nil); r.StatusCode != http.StatusOK {
 		t.Fatalf("readyz: %d", r.StatusCode)
+	}
+}
+
+func TestMeReportsVersion(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	var me meResponse
+	h.decode(h.do("GET", "/api/me", nil, nil), http.StatusOK, &me)
+	if me.Version != "1.2.3" {
+		t.Fatalf("version = %q", me.Version)
 	}
 }

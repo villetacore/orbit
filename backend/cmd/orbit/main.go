@@ -89,6 +89,7 @@ func run(log *slog.Logger) error {
 
 	handler := api.New(api.Deps{
 		Config:   cfg,
+		Version:  version,
 		OIDC:     provider,
 		Sessions: auth.NewManager(st, sealer, cfg.SessionTTL),
 		Sealer:   sealer,
