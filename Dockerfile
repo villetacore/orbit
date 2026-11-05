@@ -15,7 +15,9 @@ WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/orbit ./cmd/orbit
+# Set by the release workflow.
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/orbit ./cmd/orbit
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=api /out/orbit /orbit

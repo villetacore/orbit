@@ -1,0 +1,142 @@
+name: Release
+
+# Every push to main is a release, once CI passes:
+#   image ghcr.io/villetacore/orbit:<version>, :<major>.<minor>, :latest, :main, :sha-<short>
+#   chart oci://ghcr.io/villetacore/charts/orbit:<version>
+#   tag   v<version> with a GitHub release, created last so a failed build leaves none
+#
+# next-version.sh picks the version. Run this workflow by hand to force a bump,
+# or push a vX.Y.Z tag yourself to release that exact version.
+#
+# Docs-only commits are released too: the GitLab mirror deploys every commit on
+# main and waits for its :sha-<short> image, so skipping one fails that deploy.
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: read
+
+# Two releases at once would compute the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+    with:
+      # The image job below builds the same Dockerfile.
+      skip-image: true
+
+  version:
+    needs: ci
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: next
+        env:
+          BUMP: ${{ inputs.bump || 'auto' }}
+        run: |
+          version="$(.github/scripts/next-version.sh "$BUMP")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release version: \`$version\`" >> "$GITHUB_STEP_SUMMARY"
+
+  image:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.version }}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ needs.version.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  chart:
+    needs: [version, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Package and push chart
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm package deploy/helm/orbit --version "$VERSION" --app-version "$VERSION"
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          helm push "orbit-$VERSION.tgz" "oci://ghcr.io/$GITHUB_REPOSITORY_OWNER/charts"
+
+  tag:
+    needs: [version, chart]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # A tag created with GITHUB_TOKEN does not start this workflow again.
+      - name: Create tag and GitHub release
+        env:
+          TAG: v${{ needs.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already released"
+            exit 0
+          fi
+          previous="$(git tag --list 'v*' --merged HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -Fvx "$TAG" | sort -V | tail -n 1 || true)"
+          {
+            echo "Image: \`ghcr.io/$GITHUB_REPOSITORY:${TAG#v}\`"
+            echo
+            echo "Chart: \`oci://ghcr.io/$GITHUB_REPOSITORY_OWNER/charts/orbit\`, version \`${TAG#v}\`"
+            echo
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s (%h)' "${previous:+$previous..}HEAD"
+          } > notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md

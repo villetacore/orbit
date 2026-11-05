@@ -35,4 +35,4 @@ build:
 	cd backend && go build -o bin/orbit ./cmd/orbit
 
 image:
-	docker build -t orbit:dev .
+	docker build --build-arg VERSION="$$(git describe --tags --always --dirty)" -t orbit:dev .

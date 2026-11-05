@@ -92,7 +92,7 @@ make web     # Next.js на :5173, проксирует /api, /auth и /go на 
 
 Helm-чарт лежит в [deploy/helm/orbit](deploy/helm/orbit). Keycloak и PostgreSQL чарт не разворачивает — Orbit подключается к уже существующим.
 
-Образ публикуется job `publish` в workflow [ci.yml](.github/workflows/ci.yml) только после успешных проверок, в `ghcr.io/villetacore/orbit` (multi-arch, `linux/amd64` и `linux/arm64`): ветка `main` → тег `main` и `sha-…`, тег `vX.Y.Z` → `X.Y.Z` и `X.Y`, а сам чарт — OCI-артефактом в `oci://ghcr.io/villetacore/charts/orbit`.
+Образ публикуется workflow [release.yml](.github/workflows/release.yml) в `ghcr.io/villetacore/orbit` (multi-arch, `linux/amd64` и `linux/arm64`), а чарт — OCI-артефактом в `oci://ghcr.io/villetacore/charts/orbit`. Как назначаются версии, см. в разделе [Версии и релизы](#версии-и-релизы).
 
 1. Секреты — лучше отдельным Secret (External Secrets, Sealed Secrets, Vault) с ключами `databaseUrl`, `sessionSecret` (≥ 32 символов), `oidcClientSecret`, `keycloakAdminClientSecret`, а для S3 ещё `s3AccessKey`, `s3SecretKey`:
 
@@ -276,6 +276,22 @@ frontend/vendor/        собранные пакеты Velessoft UI 0.4
 deploy/keycloak/        realm для локальной разработки
 deploy/helm/orbit/      Helm-чарт для Kubernetes
 ```
+
+## Версии и релизы
+
+Версии следуют [SemVer](https://semver.org/lang/ru/), а единственный источник номера — git-теги `vX.Y.Z`. Вручную ничего менять не нужно: `version` в `Chart.yaml` подставляется при упаковке чарта.
+
+Каждый пуш в `main`, в том числе с правками только в документации, — это релиз: зеркало в GitLab ждёт образ `sha-…` для каждого коммита. После прохождения CI [release.yml](.github/workflows/release.yml) публикует образ и чарт, а затем создаёт тег и GitHub Release со списком коммитов. Если шаг упал, тега не будет; перезапуск того же коммита после создания тега версию не меняет.
+
+| Коммиты с прошлого тега | Версия |
+|---|---|
+| Любые другие | patch: `1.2.3` → `1.2.4` |
+| Есть `feat: …` или `feat(ui): …` | minor: `1.2.3` → `1.3.0` |
+| Есть `fix!: …` или строка `BREAKING CHANGE:` | major: `1.2.3` → `2.0.0`; пока версия `0.x` — minor |
+
+Первый релиз — `0.1.0`. Выпустить `1.0.0` или задать другое повышение можно вручную: **Actions → Release → Run workflow**, ветка `main`, поле `bump`. Точную версию задаёт тег, запушенный вручную (`git tag v1.4.0 && git push origin v1.4.0`).
+
+Теги образа: `X.Y.Z`, `X.Y`, `latest`, `main`, `sha-…`. В проде указывайте `X.Y.Z`. Версия приложения видна в первой строке его лога (`"msg":"starting","version":"…"`).
 
 ## Дальше по плану
 

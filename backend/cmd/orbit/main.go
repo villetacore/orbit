@@ -23,6 +23,9 @@ import (
 	"github.com/villetacore/orbit/backend/internal/store"
 )
 
+// version is set at build time; see the Dockerfile.
+var version = "dev"
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
@@ -32,6 +35,7 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
+	log.Info("starting", "version", version)
 	cfg, err := config.Load()
 	if err != nil {
 		return err
